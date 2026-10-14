@@ -55,7 +55,7 @@ export function MasterSidebar({ userName, logout }: { userName: string; logout: 
                 isActive(href, exact) ? "bg-brand-500 text-white shadow-sm" : "text-muted hover:bg-brand-50 hover:text-ink",
               )}
             >
-              <Icon className="size-[18px]" />
+              <Icon className="size-4.5" />
               {label}
             </Link>
           ))}
