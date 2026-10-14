@@ -1,25 +1,35 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { ArrowRight, Building2, Clock, Coins, Wallet } from "lucide-react";
 import Link from "next/link";
 import { PageHeader, StatCard } from "@/components/ui";
 import { db, schema } from "@/lib/db";
 import { money, monthLabel, todayISO, ucfirst } from "@/lib/utils";
 import { COMPANY_SERVICES, serviceMeta } from "@/lib/services";
-import { ensureChargesForMonth } from "@/server/charges";
 
 export const metadata = { title: "Início" };
 
 export default async function MasterHomePage() {
   const month = todayISO().slice(0, 7);
-  // Garante as cobranças do mês atual para os números baterem.
-  await ensureChargesForMonth(month);
 
-  const charges = await db
-    .select({ status: schema.serviceCharges.status, valueCents: schema.serviceCharges.valueCents })
-    .from(schema.serviceCharges)
-    .where(eq(schema.serviceCharges.competence, month));
-  const recebido = charges.filter((c) => c.status === "paid").reduce((a, c) => a + c.valueCents, 0);
-  const aReceber = charges.filter((c) => c.status !== "paid").reduce((a, c) => a + c.valueCents, 0);
+  // Fonte única: agenda de pagamentos (service_payments) do mês atual.
+  const payments = await db
+    .select({
+      status: schema.servicePayments.status,
+      valueCents: schema.servicePayments.valueCents,
+      service: schema.servicePayments.service,
+      billing: schema.companyServices.billing,
+    })
+    .from(schema.servicePayments)
+    .leftJoin(
+      schema.companyServices,
+      and(
+        eq(schema.companyServices.companyId, schema.servicePayments.companyId),
+        eq(schema.companyServices.service, schema.servicePayments.service),
+      ),
+    )
+    .where(sql`to_char(service_payments.due_date, 'YYYY-MM') = ${month}`);
+  const recebido = payments.filter((p) => p.status === "paid").reduce((a, p) => a + p.valueCents, 0);
+  const aReceber = payments.filter((p) => p.status !== "paid").reduce((a, p) => a + p.valueCents, 0);
   const faturamento = recebido + aReceber;
 
   const [{ ativas }] = await db
@@ -27,21 +37,16 @@ export default async function MasterHomePage() {
     .from(schema.companies)
     .where(eq(schema.companies.status, "active"));
 
-  // Resumo por serviço (MRR dos serviços mensais de empresas ativas).
-  const svc = await db
-    .select({
-      service: schema.companyServices.service,
-      valueCents: schema.companyServices.valueCents,
-      billing: schema.companyServices.billing,
-    })
-    .from(schema.companyServices)
-    .innerJoin(schema.companies, eq(schema.companies.id, schema.companyServices.companyId))
-    .where(eq(schema.companies.status, "active"));
-  const perService = COMPANY_SERVICES.map((s) => ({
-    ...s,
-    mrr: svc.filter((r) => r.service === s.key && r.billing === "monthly").reduce((a, r) => a + r.valueCents, 0),
-  }));
-  const maxMrr = Math.max(1, ...perService.map((s) => s.mrr));
+  // Receita por serviço no mês (soma os lançamentos do mês por serviço).
+  const perService = COMPANY_SERVICES.map((s) => {
+    const rows = payments.filter((p) => p.service === s.key);
+    return {
+      ...s,
+      total: rows.reduce((a, p) => a + p.valueCents, 0),
+      recurring: rows.some((p) => p.billing != null && p.billing !== "one_time"),
+    };
+  });
+  const maxTotal = Math.max(1, ...perService.map((s) => s.total));
 
   return (
     <>
@@ -64,12 +69,21 @@ export default async function MasterHomePage() {
                 <div key={s.key}>
                   <div className="mb-1 flex items-center justify-between text-sm">
                     <span className="font-medium">{s.label}</span>
-                    <span className="text-muted">{s.mrr > 0 ? <strong className="text-ink">{money(s.mrr)}/mês</strong> : "—"}</span>
+                    <span className="text-muted">
+                      {s.total > 0 ? (
+                        <strong className="text-ink">
+                          {money(s.total)}
+                          {s.recurring ? "/mês" : ""}
+                        </strong>
+                      ) : (
+                        "—"
+                      )}
+                    </span>
                   </div>
                   <div className="h-2 w-full overflow-hidden rounded-full bg-canvas">
                     <div
                       className={`h-full rounded-full ${meta?.bar ?? "bg-brand-500"}`}
-                      style={{ width: `${Math.round((s.mrr / maxMrr) * 100)}%` }}
+                      style={{ width: `${Math.round((s.total / maxTotal) * 100)}%` }}
                     />
                   </div>
                 </div>

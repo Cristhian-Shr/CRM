@@ -8,7 +8,7 @@ export default async function MasterLayout({ children }: { children: React.React
     <div className="min-h-screen">
       <MasterSidebar userName={user.name} logout={logout} />
       <div className="lg:pl-72">
-        <main className="mx-auto max-w-6xl p-4 md:p-8">{children}</main>
+        <main className="mx-auto flex min-h-screen max-w-6xl flex-col p-4 md:p-8">{children}</main>
       </div>
     </div>
   );

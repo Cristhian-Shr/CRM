@@ -1,0 +1,1 @@
+ALTER TABLE "service_payments" ADD COLUMN "note" text;

@@ -2,51 +2,15 @@ import { desc, sql } from "drizzle-orm";
 import { LogIn, Trash2 } from "lucide-react";
 import { Field, Form, Submit } from "@/components/form";
 import { Modal } from "@/components/modal";
-import { MoneyInput } from "@/components/money-input";
+import { CnpjInput, PhoneInput } from "@/components/masked-input";
 import { PageHeader } from "@/components/ui";
 import { db, schema } from "@/lib/db";
-import { centsToInput, fmtDate, money } from "@/lib/utils";
-import { COMPANY_SERVICES, SERVICE_BILLINGS, serviceMeta, type CompanyService } from "@/lib/services";
+import { fmtDate, money } from "@/lib/utils";
+import { billingLabel, serviceMeta, type CompanyService } from "@/lib/services";
 import { createCompany, deleteCompany, enterCompany, setCompanyServices, setCompanyStatus } from "@/server/actions/master";
+import { ServicesPicker } from "../services-picker";
 
 export const metadata = { title: "Empresas" };
-
-function ServicesPicker({ current }: { current?: CompanyService[] }) {
-  return (
-    <fieldset>
-      <span className="label">Serviços contratados</span>
-      <div className="mt-1 space-y-2">
-        {COMPANY_SERVICES.map((s) => {
-          const cur = current?.find((c) => c.service === s.key);
-          return (
-            <div key={s.key} className="grid grid-cols-[1fr_7rem_6rem] items-center gap-2 text-sm">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  name={`svc_${s.key}`}
-                  defaultChecked={!!cur}
-                  className="size-4 rounded accent-brand-500"
-                />
-                {s.label}
-              </label>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted">R$</span>
-                <MoneyInput name={`value_${s.key}`} defaultValue={cur ? centsToInput(cur.valueCents) : ""} className="input pl-7" />
-              </div>
-              <select name={`billing_${s.key}`} defaultValue={cur?.billing ?? "monthly"} className="input">
-                {SERVICE_BILLINGS.map((b) => (
-                  <option key={b.key} value={b.key}>
-                    {b.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          );
-        })}
-      </div>
-    </fieldset>
-  );
-}
 
 function ServiceBadges({ services }: { services: CompanyService[] }) {
   if (!services.length) return <span className="text-muted">—</span>;
@@ -58,7 +22,7 @@ function ServiceBadges({ services }: { services: CompanyService[] }) {
           <span
             key={cs.service}
             className={`badge ${m.badge}`}
-            title={`${money(cs.valueCents)} · ${cs.billing === "monthly" ? "mensal" : "único"}`}
+            title={`${money(cs.valueCents)} · ${billingLabel(cs.billing)}`}
           >
             {m.short}
           </span>
@@ -74,14 +38,15 @@ export default async function MasterCompaniesPage() {
       id: schema.companies.id,
       name: schema.companies.name,
       plan: schema.companies.plan,
+      paymentMethod: schema.companies.paymentMethod,
       status: schema.companies.status,
       services: sql<CompanyService[]>`coalesce((
-        select json_agg(json_build_object('service', cs.service, 'valueCents', cs.value_cents, 'billing', cs.billing) order by cs.service)
-        from company_services cs where cs.company_id = ${schema.companies.id}
+        select json_agg(json_build_object('service', cs.service, 'valueCents', cs.value_cents, 'billing', cs.billing, 'installments', cs.installments) order by cs.service)
+        from company_services cs where cs.company_id = companies.id
       ), '[]'::json)`,
       createdAt: schema.companies.createdAt,
-      members: sql<number>`(select count(*)::int from company_members m where m.company_id = ${schema.companies.id} and m.active)`,
-      contacts: sql<number>`(select count(*)::int from contacts c where c.company_id = ${schema.companies.id} and c.deleted_at is null)`,
+      members: sql<number>`(select count(*)::int from company_members m where m.company_id = companies.id and m.active)`,
+      contacts: sql<number>`(select count(*)::int from contacts c where c.company_id = companies.id and c.deleted_at is null)`,
     })
     .from(schema.companies)
     .orderBy(desc(schema.companies.createdAt));
@@ -99,10 +64,10 @@ export default async function MasterCompaniesPage() {
               </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="CNPJ">
-                  <input name="cnpj" className="input" />
+                  <CnpjInput name="cnpj" />
                 </Field>
                 <Field label="Telefone">
-                  <input name="phone" className="input" />
+                  <PhoneInput name="phone" />
                 </Field>
               </div>
               <Field label="Plano">
@@ -112,18 +77,7 @@ export default async function MasterCompaniesPage() {
                 </select>
               </Field>
               <ServicesPicker />
-              <div className="rounded-xl bg-brand-50 p-3 text-xs text-brand-700">Primeiro administrador da clínica</div>
-              <Field label="Nome do admin">
-                <input name="adminName" required className="input" />
-              </Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="E-mail do admin">
-                  <input name="adminEmail" type="email" required className="input" />
-                </Field>
-                <Field label="Senha inicial">
-                  <input name="adminPassword" type="text" minLength={8} required className="input" />
-                </Field>
-              </div>
+              <p className="text-xs text-muted">Os usuários desta empresa são cadastrados depois, em Usuários.</p>
               <Submit>Criar empresa</Submit>
             </Form>
           </Modal>
@@ -163,7 +117,7 @@ export default async function MasterCompaniesPage() {
                   <div className="flex justify-end gap-2">
                     <Modal title={`Serviços · ${c.name}`} trigger="Serviços" triggerClassName="btn-ghost text-xs" wide>
                       <Form action={setCompanyServices.bind(null, c.id)}>
-                        <ServicesPicker current={c.services} />
+                        <ServicesPicker current={c.services} paymentMethod={c.paymentMethod} />
                         <Submit>Salvar</Submit>
                       </Form>
                     </Modal>

@@ -38,6 +38,7 @@ export const companies = pgTable("companies", {
   logoUrl: text("logo_url"),
   timezone: text("timezone").notNull().default("America/Sao_Paulo"),
   plan: text("plan").notNull().default("basic"),
+  paymentMethod: text("payment_method"), // pix | boleto | card | transfer | cash (forma de pagamento da comanda)
   status: text("status").notNull().default("active"), // active | suspended | cancelled
   settings: jsonb("settings").$type<CompanySettings>().notNull().default({}),
   createdAt: createdAt(),
@@ -86,28 +87,29 @@ export const companyServices = pgTable(
     companyId: companyRef(),
     service: text("service").notNull(), // development | paid_traffic | automation
     valueCents: integer("value_cents").notNull().default(0),
-    billing: text("billing").notNull().default("monthly"), // monthly | one_time
+    billing: text("billing").notNull().default("monthly"), // monthly | quarterly | semiannual | annual | one_time
+    installments: integer("installments").notNull().default(12), // nº de parcelas da recorrência (ignorado em one_time)
     createdAt: createdAt(),
     updatedAt: ts("updated_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("company_services_uq").on(t.companyId, t.service)],
 );
 
-// Cobranças mensais dos serviços (faturamento: recebido x a receber).
-export const serviceCharges = pgTable(
-  "service_charges",
+// Agenda de pagamentos de cada venda (empresa + serviço) — FONTE ÚNICA do financeiro.
+export const servicePayments = pgTable(
+  "service_payments",
   {
     id: id(),
     companyId: companyRef(),
-    service: text("service").notNull(), // development | paid_traffic | automation | crm
-    competence: text("competence").notNull(), // "AAAA-MM"
+    service: text("service").notNull(), // development | paid_traffic | automation | crm | extra
+    note: text("note"), // descrição, usado em lançamentos "extra"
+    dueDate: date("due_date").notNull(),
     valueCents: integer("value_cents").notNull().default(0),
-    billing: text("billing").notNull().default("monthly"), // monthly | one_time
     status: text("status").notNull().default("pending"), // pending | paid
     paidAt: ts("paid_at"),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("service_charges_uq").on(t.companyId, t.service, t.competence)],
+  (t) => [index("service_payments_company_service_idx").on(t.companyId, t.service, t.dueDate)],
 );
 
 // ───────────── Funil, origens e leads ─────────────

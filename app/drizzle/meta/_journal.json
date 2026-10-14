@@ -43,6 +43,41 @@
       "when": 1791410598883,
       "tag": "0005_parched_gravity",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791909971508,
+      "tag": "0006_nifty_gargoyle",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791911477717,
+      "tag": "0007_legal_the_phantom",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791916683675,
+      "tag": "0008_legal_gabe_jones",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791933274453,
+      "tag": "0009_bumpy_the_fallen",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791984968645,
+      "tag": "0010_polite_sentinel",
+      "breakpoints": true
     }
   ]
 }

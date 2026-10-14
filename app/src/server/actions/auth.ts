@@ -11,6 +11,8 @@ import { safe, type ActionResult } from "../safe";
 
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
+// Hash fixo p/ equalizar o tempo do bcrypt quando o usuário não existe (evita enumeração por timing).
+const DUMMY_HASH = bcrypt.hashSync("no-such-user-placeholder", 10);
 
 export async function login(fd: FormData): Promise<ActionResult> {
   const result = await safe(async () => {
@@ -19,7 +21,10 @@ export async function login(fd: FormData): Promise<ActionResult> {
       .parse({ email: String(fd.get("email") ?? "").toLowerCase().trim(), password: fd.get("password") });
 
     const user = await db.query.users.findFirst({ where: eq(schema.users.email, email) });
-    if (!user || user.status !== "active") return { error: "E-mail ou senha incorretos." };
+    if (!user || user.status !== "active") {
+      await bcrypt.compare(String(password), DUMMY_HASH); // gasta o mesmo tempo de um login real
+      return { error: "E-mail ou senha incorretos." };
+    }
     if (user.lockedUntil && user.lockedUntil > new Date())
       return { error: `Acesso bloqueado por ${LOCK_MINUTES} minutos após várias tentativas. Tente mais tarde.` };
 

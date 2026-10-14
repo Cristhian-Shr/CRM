@@ -1,0 +1,1 @@
+ALTER TABLE "company_services" ADD COLUMN "installments" integer DEFAULT 12 NOT NULL;

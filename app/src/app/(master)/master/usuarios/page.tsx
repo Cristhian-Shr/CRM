@@ -1,16 +1,19 @@
 import { asc, desc, eq, sql } from "drizzle-orm";
-import { Pencil } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
+import { getSession } from "@/lib/auth";
 import { Field, Form, Submit } from "@/components/form";
 import { Modal } from "@/components/modal";
 import { PasswordInput } from "@/components/password-input";
 import { PageHeader } from "@/components/ui";
 import { db, schema } from "@/lib/db";
 import { fmtDateTime } from "@/lib/utils";
-import { createUser, setUserStatus, updateUser } from "@/server/actions/master";
+import { createUser, deleteUser, setUserStatus, updateUser } from "@/server/actions/master";
 
 export const metadata = { title: "Usuários" };
 
 export default async function MasterUsersPage() {
+  const session = await getSession();
+  const currentUserId = session?.userId;
   const users = await db
     .select({
       id: schema.users.id,
@@ -128,6 +131,28 @@ export default async function MasterUsersPage() {
                       <form action={setUserStatus.bind(null, u.id, u.status === "active" ? "disabled" : "active")}>
                         <button className="btn-ghost text-xs">{u.status === "active" ? "Desativar" : "Reativar"}</button>
                       </form>
+                    )}
+                    {!u.isMaster && u.id !== currentUserId && (
+                      <Modal
+                        title={`Excluir ${u.name}`}
+                        trigger={
+                          <>
+                            <Trash2 className="size-3.5" /> Excluir
+                          </>
+                        }
+                        triggerClassName="btn-ghost text-xs text-red-600 hover:text-red-700"
+                      >
+                        <Form action={deleteUser.bind(null, u.id)}>
+                          <p className="text-sm text-muted">
+                            Isso exclui <b className="text-ink">{u.name}</b> de vez e remove o acesso dele a todas as empresas. O
+                            histórico criado por ele é mantido, porém sem autor. Esta ação é <b className="text-ink">irreversível</b>.
+                          </p>
+                          <Field label={`Digite "${u.name}" para confirmar`}>
+                            <input name="confirm" required autoComplete="off" className="input" placeholder={u.name} />
+                          </Field>
+                          <Submit className="btn-danger">Excluir definitivamente</Submit>
+                        </Form>
+                      </Modal>
                     )}
                   </div>
                 </td>

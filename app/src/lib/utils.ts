@@ -29,6 +29,13 @@ export function fmtDate(d: Date | string | null | undefined, opts: Intl.DateTime
   return new Intl.DateTimeFormat("pt-BR", { timeZone: TZ, ...opts }).format(new Date(d));
 }
 
+/** Formata uma data pura "AAAA-MM-DD" como "DD/MM/AAAA" sem conversão de fuso (evita off-by-one). */
+export function fmtISODate(ymd: string | null | undefined) {
+  if (!ymd) return "";
+  const [y, m, d] = ymd.slice(0, 10).split("-");
+  return d && m && y ? `${d}/${m}/${y}` : ymd;
+}
+
 export function fmtDateTime(d: Date | string | null | undefined) {
   return fmtDate(d, { dateStyle: "short", timeStyle: "short" });
 }
