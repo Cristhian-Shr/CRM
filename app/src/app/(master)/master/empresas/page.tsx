@@ -124,11 +124,13 @@ export default async function MasterCompaniesPage() {
                     <form action={setCompanyStatus.bind(null, c.id, c.status === "active" ? "suspended" : "active")}>
                       <button className="btn-ghost text-xs">{c.status === "active" ? "Suspender" : "Reativar"}</button>
                     </form>
-                    <form action={enterCompany.bind(null, c.id)}>
-                      <button className="btn-secondary text-xs">
-                        <LogIn className="size-3.5" /> Entrar como empresa
-                      </button>
-                    </form>
+                    {c.services.some((s) => s.service === "crm") && (
+                      <form action={enterCompany.bind(null, c.id)}>
+                        <button className="btn-secondary text-xs">
+                          <LogIn className="size-3.5" /> Entrar como empresa
+                        </button>
+                      </form>
+                    )}
                     <Modal
                       title={`Excluir ${c.name}`}
                       trigger={

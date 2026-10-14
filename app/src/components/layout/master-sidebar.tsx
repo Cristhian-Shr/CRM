@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ValuesToggle } from "@/components/values-visibility";
 
 const ITEMS = [
   { href: "/master", label: "Início", icon: Home, exact: true },
@@ -64,6 +65,7 @@ export function MasterSidebar({ userName, logout }: { userName: string; logout: 
             <div className="truncate text-sm font-medium">{userName}</div>
             <div className="text-xs text-muted">Admin master</div>
           </div>
+          <ValuesToggle />
           <ThemeToggle />
           <form action={logout}>
             <button className="btn-ghost p-2" title="Sair" aria-label="Sair">

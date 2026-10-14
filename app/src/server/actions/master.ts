@@ -227,6 +227,11 @@ export async function enterCompany(companyId: string) {
   const { user } = await requireMaster();
   const company = await db.query.companies.findFirst({ where: eq(schema.companies.id, companyId) });
   if (!company) return;
+  // Só é possível impersonar empresas que contrataram o CRM.
+  const crm = await db.query.companyServices.findFirst({
+    where: and(eq(schema.companyServices.companyId, companyId), eq(schema.companyServices.service, "crm")),
+  });
+  if (!crm) return;
   await audit(db, { userId: user.id, companyId, action: "impersonate", entity: "company", entityId: companyId });
   await setSession({ userId: user.id, isMaster: true, activeCompanyId: companyId, impersonating: true });
   redirect("/dashboard");

@@ -4,8 +4,9 @@ import Link from "next/link";
 import { Form, Submit } from "@/components/form";
 import { Modal } from "@/components/modal";
 import { Empty, PageHeader } from "@/components/ui";
+import { Money } from "@/components/values-visibility";
 import { db, schema } from "@/lib/db";
-import { fmtISODate, money, todayISO } from "@/lib/utils";
+import { fmtISODate, todayISO } from "@/lib/utils";
 import { billingLabel, monthlyEquivalentCents, paymentMethodLabel, serviceMeta, type CompanyService } from "@/lib/services";
 import { setCompanyServices } from "@/server/actions/master";
 import { ServicesPicker } from "../services-picker";
@@ -125,7 +126,7 @@ export default async function MasterComandasPage({ searchParams }: { searchParam
                       <div key={s.service} className="flex items-center justify-between px-3 py-2 text-sm">
                         <span>{serviceMeta(s.service)?.label ?? s.service}</span>
                         <span className="text-muted">
-                          <strong className="text-ink">{money(s.valueCents)}</strong> · {billingLabel(s.billing)}
+                          <strong className="text-ink"><Money value={s.valueCents} /></strong> · {billingLabel(s.billing)}
                         </span>
                       </div>
                     ))}
@@ -137,9 +138,9 @@ export default async function MasterComandasPage({ searchParams }: { searchParam
                 <div className="mt-3 flex items-center justify-between text-sm">
                   <span className="text-muted">Total</span>
                   <span className="text-muted">
-                    {mrr > 0 && <strong className="text-ink">{money(mrr)}/mês</strong>}
+                    {mrr > 0 && <strong className="text-ink"><Money value={mrr} />/mês</strong>}
                     {mrr > 0 && oneTime > 0 && " · "}
-                    {oneTime > 0 && <span>{money(oneTime)} único</span>}
+                    {oneTime > 0 && <span><Money value={oneTime} /> único</span>}
                     {mrr === 0 && oneTime === 0 && "—"}
                   </span>
                 </div>

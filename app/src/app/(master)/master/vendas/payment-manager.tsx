@@ -4,7 +4,8 @@ import { CheckCircle2, Circle } from "lucide-react";
 import { useActionState, useState } from "react";
 import { Submit } from "@/components/form";
 import { generateServicePayments, setPaymentStatus } from "@/server/actions/master";
-import { fmtISODate, money } from "@/lib/utils";
+import { Money } from "@/components/values-visibility";
+import { fmtISODate } from "@/lib/utils";
 import type { ActionResult } from "@/server/safe";
 
 type Payment = { id: string; dueDate: string; valueCents: number; status: string };
@@ -119,14 +120,14 @@ export function PaymentManager({
           <div className="flex items-center justify-between text-sm">
             <span className="font-medium">Pagamentos ({payments.length})</span>
             <span className="text-muted">
-              Pago {money(paidCents)} de {money(totalCents)}
+              Pago <Money value={paidCents} /> de <Money value={totalCents} />
             </span>
           </div>
           <div className="divide-y divide-line rounded-xl border border-line">
             {payments.map((p) => (
               <div key={p.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
                 <span>{fmtISODate(p.dueDate)}</span>
-                <span className="tabular-nums">{money(p.valueCents)}</span>
+                <Money value={p.valueCents} />
                 <form action={setPaymentStatus.bind(null, p.id, p.status === "paid" ? "pending" : "paid")}>
                   <button
                     className={

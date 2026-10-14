@@ -11,7 +11,8 @@ import {
   setPaymentValue,
   setServiceInstallments,
 } from "@/server/actions/master";
-import { centsToInput, fmtISODate, money, parseMoney } from "@/lib/utils";
+import { centsToInput, fmtISODate, parseMoney } from "@/lib/utils";
+import { Money } from "@/components/values-visibility";
 import { serviceMeta } from "@/lib/services";
 
 type Payment = { id: string; service: string; dueDate: string; valueCents: number; status: string; note?: string | null };
@@ -193,7 +194,7 @@ function EditableValue({
         className="tabular-nums underline decoration-dotted underline-offset-2 hover:text-ink"
         title="Editar valor"
       >
-        {money(valueCents)}
+        <Money value={valueCents} />
       </button>
     );
   }
@@ -399,7 +400,7 @@ export function PaymentsManager({
                   {g.isExtra && <span className="ml-2 badge bg-brand-50 text-brand-700">extra</span>}
                 </span>
                 <span className="text-muted">
-                  Pago {money(paid)} de {money(total)}
+                  Pago <Money value={paid} /> de <Money value={total} />
                 </span>
               </div>
 

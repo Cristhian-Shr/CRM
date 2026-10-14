@@ -2,8 +2,9 @@ import { and, eq, sql } from "drizzle-orm";
 import { ArrowRight, Building2, Clock, Coins, Wallet } from "lucide-react";
 import Link from "next/link";
 import { PageHeader, StatCard } from "@/components/ui";
+import { Money } from "@/components/values-visibility";
 import { db, schema } from "@/lib/db";
-import { money, monthLabel, todayISO, ucfirst } from "@/lib/utils";
+import { monthLabel, todayISO, ucfirst } from "@/lib/utils";
 import { COMPANY_SERVICES, serviceMeta } from "@/lib/services";
 
 export const metadata = { title: "Início" };
@@ -53,9 +54,9 @@ export default async function MasterHomePage() {
       <PageHeader title="Início" subtitle={<span>Visão geral · {ucfirst(monthLabel(month))}</span>} />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Faturamento do mês" value={money(faturamento)} icon={Coins} />
-        <StatCard label="Recebido do mês" value={money(recebido)} icon={Wallet} tone="green" />
-        <StatCard label="A receber do mês" value={money(aReceber)} icon={Clock} tone="amber" />
+        <StatCard label="Faturamento do mês" value={<Money value={faturamento} />} icon={Coins} />
+        <StatCard label="Recebido do mês" value={<Money value={recebido} />} icon={Wallet} tone="green" />
+        <StatCard label="A receber do mês" value={<Money value={aReceber} />} icon={Clock} tone="amber" />
         <StatCard label="Empresas ativas" value={ativas} icon={Building2} />
       </div>
 
@@ -72,7 +73,7 @@ export default async function MasterHomePage() {
                     <span className="text-muted">
                       {s.total > 0 ? (
                         <strong className="text-ink">
-                          {money(s.total)}
+                          <Money value={s.total} />
                           {s.recurring ? "/mês" : ""}
                         </strong>
                       ) : (

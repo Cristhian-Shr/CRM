@@ -3,8 +3,9 @@ import { ArrowRight, Clock, Coins, TrendingUp } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { AutoSubmitSelect } from "@/components/auto-submit";
 import { Empty, PageHeader, StatCard } from "@/components/ui";
+import { Money } from "@/components/values-visibility";
 import { db, schema } from "@/lib/db";
-import { fmtISODate, money, monthLabel, todayISO, ucfirst } from "@/lib/utils";
+import { fmtISODate, monthLabel, todayISO, ucfirst } from "@/lib/utils";
 import { billingLabel, serviceMeta } from "@/lib/services";
 import { setPaymentStatus } from "@/server/actions/master";
 import { PaymentsManager } from "../comandas/payments-manager";
@@ -130,9 +131,9 @@ export default async function MasterFaturamentoPage({ searchParams }: { searchPa
       </div>
 
       <div className="mb-4 grid gap-4 sm:grid-cols-3">
-        <StatCard label="Total em faturas" value={money(total)} icon={Coins} />
-        <StatCard label="Pendente" value={money(pendente)} icon={Clock} tone="amber" />
-        <StatCard label="Recebido" value={money(recebido)} icon={TrendingUp} tone="green" />
+        <StatCard label="Total em faturas" value={<Money value={total} />} icon={Coins} />
+        <StatCard label="Pendente" value={<Money value={pendente} />} icon={Clock} tone="amber" />
+        <StatCard label="Recebido" value={<Money value={recebido} />} icon={TrendingUp} tone="green" />
       </div>
 
       <div className="card mb-6 p-4">
@@ -167,10 +168,10 @@ export default async function MasterFaturamentoPage({ searchParams }: { searchPa
                   <h2 className="font-semibold">{g.name}</h2>
                   <div className="flex items-center gap-4 text-sm">
                     <span className="text-muted">
-                      Pendente: <strong className="text-amber-600">{money(cPend)}</strong>
+                      Pendente: <strong className="text-amber-600"><Money value={cPend} /></strong>
                     </span>
                     <span className="text-muted">
-                      Recebido: <strong className="text-green-600">{money(cRec)}</strong>
+                      Recebido: <strong className="text-green-600"><Money value={cRec} /></strong>
                     </span>
                     <Modal
                       title={`Pagamentos · ${g.name}`}
@@ -204,19 +205,19 @@ export default async function MasterFaturamentoPage({ searchParams }: { searchPa
                           <span className="font-medium">
                             {label}
                             <span className="ml-2 text-muted">
-                              {isExtra ? "Extra" : billing ? billingLabel(billing) : "—"} · {money(rows[0].valueCents)} / período
+                              {isExtra ? "Extra" : billing ? billingLabel(billing) : "—"} · <Money value={rows[0].valueCents} /> / período
                             </span>
                           </span>
                           <span className="text-muted">
-                            Pendente: <strong className="text-amber-600">{money(sPend)}</strong> · Pago:{" "}
-                            <strong className="text-green-600">{money(sPaid)}</strong>
+                            Pendente: <strong className="text-amber-600"><Money value={sPend} /></strong> · Pago:{" "}
+                            <strong className="text-green-600"><Money value={sPaid} /></strong>
                           </span>
                         </div>
                         <div className="divide-y divide-line">
                           {rows.map((r) => (
                             <div key={r.id} className="flex items-center justify-between gap-3 py-1.5 text-sm">
                               <span>
-                                {fmtISODate(r.dueDate)} — <span className="tabular-nums">{money(r.valueCents)}</span>
+                                {fmtISODate(r.dueDate)} — <Money value={r.valueCents} />
                               </span>
                               <form action={setPaymentStatus.bind(null, r.id, r.status === "paid" ? "pending" : "paid")}>
                                 <button

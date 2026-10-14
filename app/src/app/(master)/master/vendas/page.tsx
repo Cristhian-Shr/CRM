@@ -2,8 +2,9 @@ import { asc, eq } from "drizzle-orm";
 import { CalendarClock, Coins, Users, Wallet } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { PageHeader, StatCard, Empty } from "@/components/ui";
+import { Money } from "@/components/values-visibility";
 import { db, schema } from "@/lib/db";
-import { fmtDate, money, todayISO } from "@/lib/utils";
+import { fmtDate, todayISO } from "@/lib/utils";
 import { COMPANY_SERVICES, billingLabel, monthlyEquivalentCents, serviceMeta } from "@/lib/services";
 import { PaymentManager } from "./payment-manager";
 
@@ -66,8 +67,8 @@ export default async function MasterVendasPage() {
       <PageHeader title="Vendas" subtitle="Receita dos seus serviços (empresas ativas)" />
 
       <div className="mb-4 grid gap-4 sm:grid-cols-3">
-        <StatCard label="Receita mensal (MRR)" value={`${money(totalMrr)}/mês`} icon={CalendarClock} tone="green" />
-        <StatCard label="Receita única" value={money(totalOneTime)} icon={Coins} />
+        <StatCard label="Receita mensal (MRR)" value={<><Money value={totalMrr} />/mês</>} icon={CalendarClock} tone="green" />
+        <StatCard label="Receita única" value={<Money value={totalOneTime} />} icon={Coins} />
         <StatCard label="Clientes com serviço" value={clients} icon={Users} />
       </div>
 
@@ -81,9 +82,9 @@ export default async function MasterVendasPage() {
                 <div className="mb-1 flex items-center justify-between text-sm">
                   <span className="font-medium">{s.label}</span>
                   <span className="text-muted">
-                    {s.mrr > 0 && <strong className="text-ink">{money(s.mrr)}/mês</strong>}
+                    {s.mrr > 0 && <strong className="text-ink"><Money value={s.mrr} />/mês</strong>}
                     {s.mrr > 0 && s.oneTime > 0 && " · "}
-                    {s.oneTime > 0 && <>{money(s.oneTime)} único</>}
+                    {s.oneTime > 0 && <><Money value={s.oneTime} /> único</>}
                     {s.mrr === 0 && s.oneTime === 0 && "—"}
                     {"  ·  "}
                     {s.companies} {s.companies === 1 ? "empresa" : "empresas"}
@@ -127,7 +128,7 @@ export default async function MasterVendasPage() {
                   <td>{serviceLabel}</td>
                   <td>{billingLabel(r.billing)}</td>
                   <td className="text-muted">{fmtDate(r.soldAt)}</td>
-                  <td className="text-right">{money(r.valueCents)}</td>
+                  <td className="text-right"><Money value={r.valueCents} /></td>
                   <td className="text-right">
                     <Modal
                       title={`Pagamentos · ${r.companyName} · ${serviceLabel}`}
