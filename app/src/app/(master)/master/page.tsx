@@ -104,6 +104,9 @@ export default async function MasterHomePage() {
           <Link href="/master/empresas" className="btn-secondary justify-between">
             Empresas <ArrowRight className="size-4" />
           </Link>
+          <Link href="/master/usuarios" className="btn-secondary justify-between">
+            Usuários <ArrowRight className="size-4" />
+          </Link>
         </div>
       </div>
     </>
