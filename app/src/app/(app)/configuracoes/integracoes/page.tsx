@@ -67,6 +67,21 @@ export default async function IntegrationsPage() {
             <Field label="Token de acesso">
               <input name="token" type="password" className="input" placeholder={wa?.accessTokenEnc ? "•••••• (deixe vazio para manter)" : ""} />
             </Field>
+            <div className="rounded-xl border border-line bg-canvas p-3">
+              <p className="mb-2 text-sm font-medium">Confirmação de agenda</p>
+              <p className="mb-3 text-xs text-muted">
+                Nome e idioma do template aprovado na Meta (categoria Utility) usado no lembrete da véspera. As variáveis do corpo recebem, nesta ordem: nome,
+                data, hora e profissional. Deixe o nome vazio para não enviar lembretes.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Nome do template">
+                  <input name="confirmTemplateName" defaultValue={wa?.settings?.confirmTemplate?.name ?? ""} className="input" placeholder="confirmacao_agenda" />
+                </Field>
+                <Field label="Idioma">
+                  <input name="confirmTemplateLang" defaultValue={wa?.settings?.confirmTemplate?.lang ?? "pt_BR"} className="input" placeholder="pt_BR" />
+                </Field>
+              </div>
+            </div>
             <div className="flex gap-2">
               <Submit>Salvar conexão</Submit>
             </div>

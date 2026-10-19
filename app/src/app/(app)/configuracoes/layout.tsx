@@ -17,6 +17,9 @@ export default async function SettingsLayout({ children }: { children: React.Rea
         <Link href="/configuracoes/integracoes" className="btn-secondary">
           Integrações
         </Link>
+        <Link href="/configuracoes/salas" className="btn-secondary">
+          Salas
+        </Link>
       </div>
       {children}
     </>

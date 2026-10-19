@@ -5,7 +5,7 @@ import { AutoSubmitInput } from "@/components/auto-submit";
 import { AppointmentForm } from "@/components/agenda/appointment-form";
 import { Modal } from "@/components/modal";
 import { PageHeader } from "@/components/ui";
-import { STATUS_COLOR, STATUS_LABEL } from "@/lib/agenda";
+import { roomWindowFor, STATUS_COLOR, STATUS_LABEL } from "@/lib/agenda";
 import { getContext } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { cn, fmtDate, todayISO, ucfirst, zonedToUtc } from "@/lib/utils";
@@ -28,7 +28,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: Promi
   const start = zonedToUtc(`${date}T00:00`);
   const end = zonedToUtc(`${shift(date, 1)}T00:00`);
 
-  const [opts, rows] = await Promise.all([
+  const [opts, rows, roomHours] = await Promise.all([
     agendaOptions(ctx),
     db
       .select({
@@ -51,9 +51,16 @@ export default async function AgendaPage({ searchParams }: { searchParams: Promi
       .leftJoin(schema.procedures, eq(schema.procedures.id, schema.appointments.procedureId))
       .where(and(eq(schema.appointments.companyId, ctx.companyId), gte(schema.appointments.startsAt, start), lt(schema.appointments.startsAt, end)))
       .orderBy(asc(schema.appointments.startsAt)),
+    db
+      .select({ id: schema.rooms.id, hours: schema.rooms.hours })
+      .from(schema.rooms)
+      .where(and(eq(schema.rooms.companyId, ctx.companyId), eq(schema.rooms.active, true))),
   ]);
 
   const appts: GridAppt[] = rows.map((r) => ({ ...r, startsAt: r.startsAt.toISOString(), endsAt: r.endsAt.toISOString() }));
+  const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
+  const windows: Record<string, { startMin: number; endMin: number } | null | undefined> = {};
+  for (const r of roomHours) windows[r.id] = roomWindowFor(r.hours, weekday);
   const columns =
     view === "profissional"
       ? [...opts.professionals, { id: "none", name: "Sem profissional" }]
@@ -104,7 +111,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: Promi
           </span>
         ))}
       </div>
-      <DayGrid view={view} columns={columns} appts={appts} date={date} opts={opts} />
+      <DayGrid view={view} columns={columns} appts={appts} date={date} opts={opts} windows={windows} />
     </>
   );
 }

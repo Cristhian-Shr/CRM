@@ -7,9 +7,9 @@ import { OrderBuilder } from "@/components/client/order-builder";
 import { Tabs } from "@/components/client/tabs";
 import { Timeline } from "@/components/client/timeline";
 import { Field, Form, Submit } from "@/components/form";
+import { EditContactModal } from "@/components/leads/edit-contact";
 import { Modal } from "@/components/modal";
 import { MoneyInput } from "@/components/money-input";
-import { PhoneInput } from "@/components/phone-input";
 import { TaskForm } from "@/components/tasks/task-form";
 import { Avatar, StatusBadge } from "@/components/ui";
 import { STATUS_COLOR, STATUS_LABEL } from "@/lib/agenda";
@@ -196,71 +196,13 @@ export default async function ContactPage({ params, searchParams }: { params: Pr
           </dl>
           {contact.notes && <p className="mt-3 rounded-xl bg-canvas p-3 text-sm whitespace-pre-wrap">{contact.notes}</p>}
           <div className="mt-4 flex gap-2">
-            <Modal title="Editar ficha" trigger="Editar" triggerClassName="btn-secondary flex-1">
-              <Form action={updateContact.bind(null, id)} resetOnSuccess={false}>
-                <Field label="Nome">
-                  <input name="name" required defaultValue={contact.name} className="input" />
-                </Field>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Telefone">
-                    <PhoneInput name="phone" defaultValue={fmtPhone(contact.phone)} />
-                  </Field>
-                  <Field label="WhatsApp (se diferente)">
-                    <PhoneInput name="whatsapp" defaultValue={contact.whatsapp !== contact.phone ? fmtPhone(contact.whatsapp) : ""} />
-                  </Field>
-                  <Field label="E-mail">
-                    <input name="email" type="email" defaultValue={contact.email ?? ""} className="input" />
-                  </Field>
-                  <Field label="Empresa">
-                    <input name="companyName" defaultValue={contact.companyName ?? ""} className="input" />
-                  </Field>
-                  <Field label="CPF">
-                    <input name="cpf" defaultValue={contact.cpf ?? ""} className="input" />
-                  </Field>
-                  <Field label="Nascimento">
-                    <input name="birthDate" type="date" defaultValue={contact.birthDate ?? ""} className="input" />
-                  </Field>
-                  <Field label="Status">
-                    <select name="status" defaultValue={contact.status} className="input">
-                      <option value="lead">Lead</option>
-                      <option value="client">Cliente</option>
-                      <option value="inactive">Inativo</option>
-                    </select>
-                  </Field>
-                  <Field label="Responsável">
-                    <select name="ownerId" defaultValue={contact.ownerId ?? ""} className="input">
-                      <option value="">—</option>
-                      {opts.members.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Origem">
-                    <select name="sourceId" defaultValue={contact.sourceId ?? ""} className="input">
-                      <option value="">—</option>
-                      {sources.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Tags (separadas por vírgula)">
-                    <input name="tags" defaultValue={contact.tags.join(", ")} className="input" />
-                  </Field>
-                </div>
-                <Field label="Observações">
-                  <textarea name="notes" rows={3} defaultValue={contact.notes ?? ""} className="input" />
-                </Field>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" name="consent" defaultChecked={!!contact.consentAt} className="accent-brand-500" />
-                  Cliente autorizou contato (LGPD)
-                </label>
-                <Submit>Salvar</Submit>
-              </Form>
-            </Modal>
+            <EditContactModal
+              contact={contact}
+              members={opts.members}
+              sources={sources}
+              trigger="Editar"
+              triggerClassName="btn-secondary flex-1"
+            />
             {can(ctx, "leads.delete") && <DeleteContact id={id} />}
           </div>
         </div>

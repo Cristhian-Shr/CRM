@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { RoomHours } from "@/lib/agenda";
 
 const id = () => uuid("id").primaryKey().defaultRandom();
 const ts = (name: string) => timestamp(name, { withTimezone: true });
@@ -110,6 +111,23 @@ export const servicePayments = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("service_payments_company_service_idx").on(t.companyId, t.service, t.dueDate)],
+);
+
+// Solicitações de contratação de serviço feitas pela empresa (admin) à agência.
+export const serviceRequests = pgTable(
+  "service_requests",
+  {
+    id: id(),
+    companyId: companyRef(),
+    service: text("service").notNull(), // development | paid_traffic | automation | crm
+    status: text("status").notNull().default("pending"), // pending | resolved | cancelled
+    note: text("note"),
+    requestedBy: uuid("requested_by").references(() => users.id),
+    createdAt: createdAt(),
+    resolvedAt: ts("resolved_at"),
+    resolvedBy: uuid("resolved_by").references(() => users.id),
+  },
+  (t) => [index("service_requests_status_idx").on(t.status, t.companyId)],
 );
 
 // ───────────── Funil, origens e leads ─────────────
@@ -380,6 +398,8 @@ export const rooms = pgTable("rooms", {
   companyId: companyRef(),
   name: text("name").notNull(),
   active: boolean("active").notNull().default(true),
+  // null = sala sem restrição de horário (usa a janela padrão da agenda)
+  hours: jsonb("hours").$type<RoomHours>(),
 });
 
 export const appointments = pgTable(
@@ -400,6 +420,7 @@ export const appointments = pgTable(
     endsAt: ts("ends_at").notNull(),
     status: text("status").notNull().default("scheduled"),
     notes: text("notes"),
+    reminderSentAt: ts("reminder_sent_at"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: createdAt(),
     updatedAt: ts("updated_at").notNull().defaultNow(),
@@ -449,6 +470,11 @@ export const notifications = pgTable("notifications", {
 
 // ───────────── Conversas e linha do tempo ─────────────
 
+export type WhatsappAccountSettings = {
+  /** Template aprovado na Meta para o lembrete de confirmação de agenda. */
+  confirmTemplate?: { name: string; lang: string };
+};
+
 export const whatsappAccounts = pgTable("whatsapp_accounts", {
   id: id(),
   companyId: companyRef(),
@@ -459,7 +485,7 @@ export const whatsappAccounts = pgTable("whatsapp_accounts", {
   accessTokenEnc: text("access_token_enc"),
   status: text("status").notNull().default("pending"),
   defaultOwnerId: uuid("default_owner_id").references(() => companyMembers.id),
-  settings: jsonb("settings").notNull().default({}),
+  settings: jsonb("settings").$type<WhatsappAccountSettings>().notNull().default({}),
   createdAt: createdAt(),
 });
 

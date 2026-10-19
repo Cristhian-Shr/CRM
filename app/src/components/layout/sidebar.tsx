@@ -12,6 +12,7 @@ import {
   Menu,
   Receipt,
   Settings,
+  ShoppingBag,
   Syringe,
   Target,
   UserCog,
@@ -36,6 +37,7 @@ const ITEMS: Item[] = [
   { href: "/financeiro", label: "Financeiro", icon: Receipt, adminOnly: true },
   { href: "/metas", label: "Metas", icon: Target, adminOnly: true },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3, adminOnly: true },
+  { href: "/servicos", label: "Serviços", icon: ShoppingBag, adminOnly: true },
   { href: "/configuracoes/equipe", label: "Equipe", icon: UserCog, adminOnly: true },
   { href: "/configuracoes", label: "Configurações", icon: Settings, adminOnly: true },
 ];

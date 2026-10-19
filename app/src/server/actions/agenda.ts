@@ -6,11 +6,11 @@ import { z } from "zod";
 import { getContext } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { getContactOr404, logActivity } from "@/lib/db/tenant";
-import { STATUS_LABEL } from "@/lib/agenda";
-import { fmtDateTime, str, zonedToUtc } from "@/lib/utils";
+import { hmToMinutes, roomWindowFor, STATUS_LABEL } from "@/lib/agenda";
+import { fmtDateTime, str, toLocalInput, zonedToUtc } from "@/lib/utils";
 import { safe } from "../safe";
 
-const { appointments, contractedSessions, procedures } = schema;
+const { appointments, contractedSessions, procedures, rooms } = schema;
 const INACTIVE = ["cancelled", "no_show"];
 
 
@@ -61,6 +61,27 @@ async function assertNoConflict(companyId: string, a: { startsAt: Date; endsAt: 
   if (clash) throw new Error(`Conflito de horário com outro atendimento às ${fmtDateTime(clash.startsAt)} (mesma sala ou profissional).`);
 }
 
+const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+
+/** Garante que o atendimento cai dentro da carga horária da sala no dia da semana. */
+async function assertWithinRoomHours(companyId: string, a: { startsAt: Date; endsAt: Date; roomId: string | null }) {
+  if (!a.roomId) return;
+  const room = await db.query.rooms.findFirst({ where: and(eq(rooms.id, a.roomId), eq(rooms.companyId, companyId)) });
+  if (!room?.hours) return; // sala sem restrição de horário
+  const localStart = toLocalInput(a.startsAt);
+  const localEnd = toLocalInput(a.endsAt);
+  const weekday = new Date(`${localStart.slice(0, 10)}T12:00:00Z`).getUTCDay();
+  const win = roomWindowFor(room.hours, weekday);
+  if (win === undefined) return;
+  if (win === null) throw new Error(`A sala ${room.name} está fechada neste dia.`);
+  const startMin = hmToMinutes(localStart.slice(11));
+  const endMin = hmToMinutes(localEnd.slice(11));
+  if (startMin == null || endMin == null) return;
+  if (startMin < win.startMin || (endMin > startMin && endMin > win.endMin) || startMin >= win.endMin) {
+    throw new Error(`Fora do horário da sala ${room.name} (${hhmm(win.startMin)}–${hhmm(win.endMin)}).`);
+  }
+}
+
 /** Confere saldo do programa: sessões usadas + agendadas não podem passar do contratado. */
 async function assertBalance(companyId: string, contactId: string, sessionId: string | null, ignoreId?: string) {
   if (!sessionId) return null;
@@ -89,6 +110,7 @@ export async function createAppointment(fd: FormData) {
     await getContactOr404(ctx, a.contactId);
     const session = await assertBalance(ctx.companyId, a.contactId, a.contractedSessionId);
     if (session && !a.procedureId) a.procedureId = session.procedureId;
+    await assertWithinRoomHours(ctx.companyId, a);
     await assertNoConflict(ctx.companyId, a);
     const [appt] = await db
       .insert(appointments)
@@ -113,6 +135,7 @@ export async function updateAppointment(id: string, fd: FormData) {
     if (!current) throw new Error("Agendamento não encontrado.");
     const a = await parseAppointment(fd, ctx.companyId);
     if (a.contractedSessionId !== current.contractedSessionId) await assertBalance(ctx.companyId, a.contactId, a.contractedSessionId, id);
+    await assertWithinRoomHours(ctx.companyId, a);
     await assertNoConflict(ctx.companyId, a, id);
     await db.update(appointments).set({ ...a, updatedAt: new Date() }).where(eq(appointments.id, id));
     await logActivity(db, ctx, { contactId: a.contactId, type: "appointment_status", payload: { status: "Remarcado", when: fmtDateTime(a.startsAt) } });

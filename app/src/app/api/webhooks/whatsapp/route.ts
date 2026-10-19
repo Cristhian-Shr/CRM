@@ -1,9 +1,9 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNotNull, sql } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 import { db, schema } from "@/lib/db";
 import { logActivity, notifyMember } from "@/lib/db/tenant";
 import { messageText, verifySignature, type WaWebhook } from "@/lib/integrations/whatsapp";
-import { normalizePhone } from "@/lib/utils";
+import { fmtDateTime, normalizePhone } from "@/lib/utils";
 import { upsertInboundLead } from "@/server/intake";
 
 export const dynamic = "force-dynamic";
@@ -95,8 +95,66 @@ export async function POST(req: NextRequest) {
             link: `/conversas?c=${conv.id}`,
           });
         }
+        await handleConfirmationReply(companyId, { id: contact.id, name: contact.name, ownerId: contact.ownerId }, text);
       }
     }
   }
   return NextResponse.json({ ok: true });
+}
+
+const CONFIRM_WORDS = ["sim", "confirmo", "confirmado", "ok", "confirmar", "pode sim", "1"];
+const DECLINE_WORDS = ["nao", "cancelar", "desmarcar", "remarcar", "2"];
+
+/**
+ * Se a mensagem do cliente for uma resposta ao lembrete de confirmação e houver
+ * exatamente 1 agendamento futuro aguardando confirmação, confirma (SIM) ou
+ * avisa a equipe (NÃO). Fora disso, não faz nada.
+ */
+async function handleConfirmationReply(companyId: string, contact: { id: string; name: string; ownerId: string | null }, text: string) {
+  const norm = text
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^\w\s]/g, "")
+    .trim()
+    .toLowerCase();
+  const isConfirm = CONFIRM_WORDS.includes(norm);
+  const isDecline = DECLINE_WORDS.includes(norm);
+  if (!isConfirm && !isDecline) return;
+
+  const pending = await db
+    .select({ id: schema.appointments.id, startsAt: schema.appointments.startsAt })
+    .from(schema.appointments)
+    .where(
+      and(
+        eq(schema.appointments.companyId, companyId),
+        eq(schema.appointments.contactId, contact.id),
+        eq(schema.appointments.status, "scheduled"),
+        isNotNull(schema.appointments.reminderSentAt),
+        gt(schema.appointments.startsAt, new Date()),
+      ),
+    )
+    .orderBy(asc(schema.appointments.startsAt))
+    .limit(2);
+  if (pending.length !== 1) return; // 0 ou ambíguo: não age
+
+  const appt = pending[0];
+  const when = fmtDateTime(appt.startsAt);
+  if (isConfirm) {
+    await db.update(schema.appointments).set({ status: "confirmed", updatedAt: new Date() }).where(eq(schema.appointments.id, appt.id));
+    await logActivity(db, { companyId }, { contactId: contact.id, type: "appointment_status", payload: { status: "Confirmado", when } });
+    await notifyMember(db, companyId, contact.ownerId, {
+      type: "appointment_confirmed",
+      title: `${contact.name} confirmou a presença`,
+      body: when,
+      link: `/clientes/${contact.id}`,
+    });
+  } else {
+    await logActivity(db, { companyId }, { contactId: contact.id, type: "appointment_declined", payload: { when } });
+    await notifyMember(db, companyId, contact.ownerId, {
+      type: "appointment_decline",
+      title: `${contact.name} não confirmou a presença`,
+      body: `${when} — verifique/remarque`,
+      link: `/clientes/${contact.id}`,
+    });
+  }
 }

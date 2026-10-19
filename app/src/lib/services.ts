@@ -1,9 +1,37 @@
 /** Serviços que a agência presta a cada empresa cliente (marcados no painel master). */
 export const COMPANY_SERVICES = [
-  { key: "development", label: "Desenvolvimento", short: "Desenvolvimento", badge: "bg-sky-50 text-sky-700", bar: "bg-sky-500" },
-  { key: "paid_traffic", label: "Tráfego pago", short: "Tráfego pago", badge: "bg-emerald-50 text-emerald-700", bar: "bg-emerald-500" },
-  { key: "automation", label: "Automação (ChatBot IA)", short: "Automação IA", badge: "bg-violet-50 text-violet-700", bar: "bg-violet-500" },
-  { key: "crm", label: "CRM", short: "CRM", badge: "bg-amber-50 text-amber-700", bar: "bg-amber-500" },
+  {
+    key: "development",
+    label: "Desenvolvimento",
+    short: "Desenvolvimento",
+    badge: "bg-sky-50 text-sky-700",
+    bar: "bg-sky-500",
+    description: "Criação e manutenção de site, landing pages e integrações sob medida para a sua clínica.",
+  },
+  {
+    key: "paid_traffic",
+    label: "Tráfego pago",
+    short: "Tráfego pago",
+    badge: "bg-emerald-50 text-emerald-700",
+    bar: "bg-emerald-500",
+    description: "Gestão de campanhas no Meta (Instagram/Facebook) para gerar leads qualificados todo mês.",
+  },
+  {
+    key: "automation",
+    label: "Automação (ChatBot IA)",
+    short: "Automação IA",
+    badge: "bg-violet-50 text-violet-700",
+    bar: "bg-violet-500",
+    description: "ChatBot com IA no WhatsApp para atender, qualificar e agendar automaticamente.",
+  },
+  {
+    key: "crm",
+    label: "CRM",
+    short: "CRM",
+    badge: "bg-amber-50 text-amber-700",
+    bar: "bg-amber-500",
+    description: "Acesso à plataforma de CRM para gerir leads, agenda, funil e financeiro da clínica.",
+  },
 ] as const;
 
 export type CompanyServiceKey = (typeof COMPANY_SERVICES)[number]["key"];

@@ -1,10 +1,12 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
+import { LeadActions } from "@/components/leads/lead-actions";
 import { NewLeadButton } from "@/components/leads/new-lead";
 import { Avatar, Empty, PageHeader, StatusBadge } from "@/components/ui";
 import { getContext } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { contactScope, listMembers, listStages } from "@/lib/db/tenant";
+import { can } from "@/lib/permissions";
 import { fmtDate, fmtPhone } from "@/lib/utils";
 
 export const metadata = { title: "Leads / Clientes" };
@@ -24,8 +26,17 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
       id: schema.contacts.id,
       name: schema.contacts.name,
       phone: schema.contacts.phone,
+      whatsapp: schema.contacts.whatsapp,
       email: schema.contacts.email,
+      companyName: schema.contacts.companyName,
+      cpf: schema.contacts.cpf,
+      birthDate: schema.contacts.birthDate,
       status: schema.contacts.status,
+      ownerId: schema.contacts.ownerId,
+      sourceId: schema.contacts.sourceId,
+      tags: schema.contacts.tags,
+      notes: schema.contacts.notes,
+      consentAt: schema.contacts.consentAt,
       createdAt: schema.contacts.createdAt,
       lastInteractionAt: schema.contacts.lastInteractionAt,
       owner: schema.users.name,
@@ -51,6 +62,10 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
     )
     .orderBy(desc(schema.contacts.createdAt))
     .limit(300);
+
+  const canDelete = can(ctx, "leads.delete");
+  const memberOpts = members.map((m) => ({ id: m.id, name: m.name }));
+  const sourceOpts = sources.map((s) => ({ id: s.id, name: s.name }));
 
   return (
     <>
@@ -98,6 +113,7 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
                 <th>Origem</th>
                 <th>Responsável</th>
                 <th>Cadastro</th>
+                <th className="text-right">Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -125,6 +141,29 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
                     )}
                   </td>
                   <td className="text-muted">{fmtDate(r.createdAt)}</td>
+                  <td>
+                    <LeadActions
+                      contact={{
+                        id: r.id,
+                        name: r.name,
+                        phone: r.phone,
+                        whatsapp: r.whatsapp,
+                        email: r.email,
+                        companyName: r.companyName,
+                        cpf: r.cpf,
+                        birthDate: r.birthDate,
+                        status: r.status,
+                        ownerId: r.ownerId,
+                        sourceId: r.sourceId,
+                        tags: r.tags,
+                        notes: r.notes,
+                        consentAt: r.consentAt,
+                      }}
+                      members={memberOpts}
+                      sources={sourceOpts}
+                      canDelete={canDelete}
+                    />
+                  </td>
                 </tr>
               ))}
             </tbody>

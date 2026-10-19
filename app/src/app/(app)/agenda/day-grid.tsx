@@ -37,13 +37,48 @@ function minutesOfDay(iso: string) {
   return h * 60 + m;
 }
 
-export function DayGrid({ view, columns, appts, date, opts }: { view: string; columns: Opt[]; appts: GridAppt[]; date: string; opts: Opts }) {
+type Win = { startMin: number; endMin: number } | null | undefined;
+
+export function DayGrid({
+  view,
+  columns,
+  appts,
+  date,
+  opts,
+  windows,
+}: {
+  view: string;
+  columns: Opt[];
+  appts: GridAppt[];
+  date: string;
+  opts: Opts;
+  windows?: Record<string, Win>;
+}) {
   const [selected, setSelected] = useState<GridAppt | null>(null);
   const [newSlot, setNewSlot] = useState<{ time: string; col: string } | null>(null);
 
   const colOf = (a: GridAppt) => (view === "profissional" ? a.professionalId : a.roomId) ?? "none";
   const visible = columns.filter((c) => c.id !== "none" || appts.some((a) => colOf(a) === "none"));
-  const hours = Array.from({ length: END_H - START_H }, (_, i) => START_H + i);
+  const winOf = (colId: string): Win => (view === "profissional" ? undefined : windows?.[colId]);
+
+  // Eixo de horas dinâmico: engloba a janela padrão, os horários das salas do dia e os atendimentos existentes.
+  let minMin = START_H * 60;
+  let maxMin = END_H * 60;
+  for (const c of visible) {
+    const w = winOf(c.id);
+    if (w) {
+      minMin = Math.min(minMin, w.startMin);
+      maxMin = Math.max(maxMin, w.endMin);
+    }
+  }
+  for (const a of appts) {
+    minMin = Math.min(minMin, minutesOfDay(a.startsAt));
+    maxMin = Math.max(maxMin, minutesOfDay(a.endsAt));
+  }
+  const startH = Math.floor(minMin / 60);
+  const endH = Math.ceil(maxMin / 60);
+  const axisStartMin = startH * 60;
+  const hours = Array.from({ length: Math.max(1, endH - startH) }, (_, i) => startH + i);
 
   return (
     <>
@@ -77,25 +112,42 @@ export function DayGrid({ view, columns, appts, date, opts }: { view: string; co
                 </div>
               ))}
             </div>
-            {visible.map((c) => (
+            {visible.map((c) => {
+              const win = winOf(c.id);
+              return (
               <div key={c.id} className="w-48 shrink-0 border-r border-line">
                 <div className="flex h-10 items-center justify-center border-b border-line px-2 text-sm font-medium">{c.name}</div>
                 <div className="relative" style={{ height: hours.length * SLOT_PX * 4 }}>
                   {hours.flatMap((h) =>
-                    [0, 15, 30, 45].map((m) => (
-                      <button
-                        key={`${h}:${m}`}
-                        className={cn("block w-full hover:bg-brand-50", m === 45 ? "border-b border-line" : "border-b border-dashed border-line/50")}
-                        style={{ height: SLOT_PX }}
-                        onClick={() => setNewSlot({ time: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`, col: c.id })}
-                        aria-label={`Agendar ${h}:${m}`}
-                      />
-                    )),
+                    [0, 15, 30, 45].map((m) => {
+                      const slotMin = h * 60 + m;
+                      const blocked = win === null || (win ? slotMin < win.startMin || slotMin >= win.endMin : false);
+                      const borderCls = m === 45 ? "border-b border-line" : "border-b border-dashed border-line/50";
+                      if (blocked) {
+                        return (
+                          <div
+                            key={`${h}:${m}`}
+                            className={cn("block w-full bg-canvas/70 bg-[repeating-linear-gradient(45deg,transparent,transparent_5px,rgba(0,0,0,0.04)_5px,rgba(0,0,0,0.04)_6px)]", borderCls)}
+                            style={{ height: SLOT_PX }}
+                            aria-hidden
+                          />
+                        );
+                      }
+                      return (
+                        <button
+                          key={`${h}:${m}`}
+                          className={cn("block w-full hover:bg-brand-50", borderCls)}
+                          style={{ height: SLOT_PX }}
+                          onClick={() => setNewSlot({ time: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`, col: c.id })}
+                          aria-label={`Agendar ${h}:${m}`}
+                        />
+                      );
+                    }),
                   )}
                   {appts
                     .filter((a) => colOf(a) === c.id)
                     .map((a) => {
-                      const top = ((minutesOfDay(a.startsAt) - START_H * 60) / 15) * SLOT_PX;
+                      const top = ((minutesOfDay(a.startsAt) - axisStartMin) / 15) * SLOT_PX;
                       const height = Math.max(SLOT_PX, ((new Date(a.endsAt).getTime() - new Date(a.startsAt).getTime()) / 900_000) * SLOT_PX - 2);
                       return (
                         <button
@@ -117,7 +169,8 @@ export function DayGrid({ view, columns, appts, date, opts }: { view: string; co
                     })}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

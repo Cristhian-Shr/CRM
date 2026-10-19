@@ -30,6 +30,31 @@ export async function sendText(phoneNumberId: string, token: string, to: string,
   return json.messages?.[0]?.id ?? null;
 }
 
+/**
+ * Envia uma mensagem de template aprovado (HSM). Necessário para mensagens
+ * proativas fora da janela de 24h — o texto livre do sendText é bloqueado nesse caso.
+ * `params` preenche, em ordem, as variáveis {{1}}, {{2}}… do corpo do template.
+ */
+export async function sendTemplate(phoneNumberId: string, token: string, to: string, template: { name: string; lang: string }, params: string[]) {
+  const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to: to.replace(/^\+/, ""),
+      type: "template",
+      template: {
+        name: template.name,
+        language: { code: template.lang },
+        components: params.length ? [{ type: "body", parameters: params.map((text) => ({ type: "text", text })) }] : [],
+      },
+    }),
+  });
+  const json = (await res.json()) as { messages?: { id: string }[]; error?: { message: string } };
+  if (!res.ok) throw new Error(json.error?.message ?? `WhatsApp respondeu ${res.status}`);
+  return json.messages?.[0]?.id ?? null;
+}
+
 // Tipos (parciais) do webhook da Cloud API
 export type WaWebhook = {
   entry?: {

@@ -10,14 +10,12 @@ import { listStages } from "@/lib/db/tenant";
 import { cn, money, todayISO } from "@/lib/utils";
 import {
   addLossReason,
-  addRoom,
   addSource,
   addStage,
   deleteStage,
   moveStage,
   saveCompany,
   saveGoal,
-  toggleRoom,
   toggleSource,
   updateStage,
 } from "@/server/actions/settings";
@@ -30,19 +28,18 @@ const METRIC: Record<string, string> = { revenue: "Faturamento", deals_won: "Ven
 export default async function SettingsPage() {
   const ctx = await getContext();
   const cid = ctx.companyId;
-  const [company, stages, sources, reasons, rooms, goals] = await Promise.all([
+  const [company, stages, sources, reasons, goals] = await Promise.all([
     db.query.companies.findFirst({ where: eq(schema.companies.id, cid) }),
     listStages(cid),
     db.select().from(schema.leadSources).where(eq(schema.leadSources.companyId, cid)).orderBy(asc(schema.leadSources.name)),
     db.select().from(schema.lossReasons).where(eq(schema.lossReasons.companyId, cid)).orderBy(asc(schema.lossReasons.name)),
-    db.select().from(schema.rooms).where(eq(schema.rooms.companyId, cid)).orderBy(asc(schema.rooms.name)),
     db.select().from(schema.goals).where(eq(schema.goals.companyId, cid)).orderBy(desc(schema.goals.startsOn)).limit(12),
   ]);
   if (!company) return null;
 
   return (
     <>
-      <PageHeader title="Configurações" subtitle="Dados da clínica, funil, origens, salas e metas" />
+      <PageHeader title="Configurações" subtitle="Dados da clínica, funil, origens e metas" />
       <div className="grid gap-6 xl:grid-cols-2">
         <section className="card p-5">
           <h2 className="mb-4 text-lg font-semibold">Clínica</h2>
@@ -162,23 +159,6 @@ export default async function SettingsPage() {
           </div>
           <Form action={addLossReason} className="flex gap-2 space-y-0">
             <input name="name" required placeholder="Novo motivo" className="input" />
-            <Submit className="btn-secondary">Adicionar</Submit>
-          </Form>
-        </section>
-
-        <section className="card p-5">
-          <h2 className="mb-4 text-lg font-semibold">Salas da agenda</h2>
-          <div className="mb-3 flex flex-wrap gap-2">
-            {rooms.map((r) => (
-              <form key={r.id} action={toggleRoom.bind(null, r.id, !r.active)}>
-                <button className={cn("badge border border-line px-3 py-1", r.active ? "bg-surface" : "bg-canvas text-muted line-through")} title={r.active ? "Desativar" : "Ativar"}>
-                  {r.name}
-                </button>
-              </form>
-            ))}
-          </div>
-          <Form action={addRoom} className="flex gap-2 space-y-0">
-            <input name="name" required placeholder="Estética 3" className="input" />
             <Submit className="btn-secondary">Adicionar</Submit>
           </Form>
         </section>

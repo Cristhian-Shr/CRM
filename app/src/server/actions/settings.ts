@@ -212,7 +212,7 @@ export async function addRoom(fd: FormData) {
   return safe(async () => {
     const ctx = await adminCtx();
     await db.insert(schema.rooms).values({ companyId: ctx.companyId, name: z.string().min(1, "Informe o nome da sala.").parse(str(fd, "name")) });
-    revalidatePath("/configuracoes");
+    revalidatePath("/configuracoes/salas");
     revalidatePath("/agenda");
   });
 }
@@ -220,8 +220,32 @@ export async function addRoom(fd: FormData) {
 export async function toggleRoom(id: string, active: boolean) {
   const ctx = await adminCtx();
   await db.update(schema.rooms).set({ active }).where(and(eq(schema.rooms.id, id), eq(schema.rooms.companyId, ctx.companyId)));
-  revalidatePath("/configuracoes");
+  revalidatePath("/configuracoes/salas");
   revalidatePath("/agenda");
+}
+
+const HM = /^\d{2}:\d{2}$/;
+
+/** Atualiza nome e carga horária (por dia da semana) de uma sala. */
+export async function updateRoom(id: string, fd: FormData) {
+  return safe(async () => {
+    const ctx = await adminCtx();
+    const name = z.string().min(1, "Informe o nome da sala.").parse(str(fd, "name"));
+    const hours: Record<string, { open: string; close: string }> = {};
+    for (let d = 0; d < 7; d++) {
+      if (!fd.get(`open_${d}`)) continue; // dia desmarcado = fechado
+      const open = str(fd, `start_${d}`);
+      const close = str(fd, `end_${d}`);
+      if (!open || !close || !HM.test(open) || !HM.test(close) || close <= open) continue;
+      hours[String(d)] = { open, close };
+    }
+    await db
+      .update(schema.rooms)
+      .set({ name, hours: Object.keys(hours).length ? hours : null })
+      .where(and(eq(schema.rooms.id, id), eq(schema.rooms.companyId, ctx.companyId)));
+    revalidatePath("/configuracoes/salas");
+    revalidatePath("/agenda");
+  });
 }
 
 // ───────────── Metas ─────────────
@@ -279,6 +303,12 @@ export async function saveWhatsapp(fd: FormData) {
     if (!existing && !token) throw new Error("Informe o token de acesso.");
     const taken = await db.query.whatsappAccounts.findFirst({ where: eq(schema.whatsappAccounts.phoneNumberId, phoneNumberId) });
     if (taken && taken.companyId !== ctx.companyId) throw new Error("Este número já está conectado a outra empresa.");
+    const confirmName = str(fd, "confirmTemplateName");
+    const confirmLang = str(fd, "confirmTemplateLang") ?? "pt_BR";
+    const settings = {
+      ...(existing?.settings ?? {}),
+      confirmTemplate: confirmName ? { name: confirmName, lang: confirmLang } : undefined,
+    };
     const values = {
       provider: "meta_cloud",
       displayPhone: str(fd, "displayPhone") ?? phoneNumberId,
@@ -286,6 +316,7 @@ export async function saveWhatsapp(fd: FormData) {
       wabaId: str(fd, "wabaId"),
       defaultOwnerId: str(fd, "defaultOwnerId"),
       status: "connected",
+      settings,
       ...(token ? { accessTokenEnc: encrypt(token) } : {}),
     };
     if (existing) await db.update(schema.whatsappAccounts).set(values).where(eq(schema.whatsappAccounts.id, existing.id));

@@ -38,6 +38,11 @@ export default async function MasterHomePage() {
     .from(schema.companies)
     .where(eq(schema.companies.status, "active"));
 
+  const [{ pendingRequests }] = await db
+    .select({ pendingRequests: sql<number>`count(*)::int` })
+    .from(schema.serviceRequests)
+    .where(eq(schema.serviceRequests.status, "pending"));
+
   // Receita por serviço no mês (soma os lançamentos do mês por serviço).
   const perService = COMPANY_SERVICES.map((s) => {
     const rows = payments.filter((p) => p.service === s.key);
@@ -106,6 +111,13 @@ export default async function MasterHomePage() {
           </Link>
           <Link href="/master/usuarios" className="btn-secondary justify-between">
             Usuários <ArrowRight className="size-4" />
+          </Link>
+          <Link href="/master/solicitacoes" className="btn-secondary justify-between">
+            <span className="flex items-center gap-2">
+              Solicitações
+              {pendingRequests > 0 && <span className="badge bg-amber-50 text-amber-700">{pendingRequests}</span>}
+            </span>
+            <ArrowRight className="size-4" />
           </Link>
         </div>
       </div>

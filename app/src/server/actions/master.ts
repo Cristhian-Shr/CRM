@@ -144,6 +144,18 @@ export async function setCompanyStatus(companyId: string, status: "active" | "su
   revalidatePath("/master/faturamento");
 }
 
+/** Marca uma solicitação de serviço como resolvida (a agência já ativou/tratou). */
+export async function resolveServiceRequest(id: string) {
+  const { user } = await requireMaster();
+  await db
+    .update(schema.serviceRequests)
+    .set({ status: "resolved", resolvedAt: new Date(), resolvedBy: user.id })
+    .where(and(eq(schema.serviceRequests.id, id), eq(schema.serviceRequests.status, "pending")));
+  await audit(db, { userId: user.id, action: "service_request.resolve", entity: "service_request", entityId: id });
+  revalidatePath("/master");
+  revalidatePath("/master/solicitacoes");
+}
+
 export async function setCompanyServices(companyId: string, fd: FormData) {
   return safe(async () => {
     const { user } = await requireMaster();
