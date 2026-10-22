@@ -28,6 +28,7 @@ type Campaign = {
 };
 type Insight = {
   campaign_id: string;
+  campaign_name?: string;
   date_start: string;
   spend?: string;
   impressions?: string;
@@ -136,6 +137,72 @@ export async function syncMetaConnection(conn: typeof schema.metaConnections.$in
     await db.update(schema.metaConnections).set({ lastError: msg, status: "error" }).where(eq(schema.metaConnections.id, conn.id));
     throw e;
   }
+}
+
+/**
+ * Puxa os insights diários de UM mês (time_range) de uma conexão e grava em
+ * meta_insights_daily. Cria um registro mínimo de campanha para campanhas antigas
+ * que não estão mais na lista ativa. Retorna quantas linhas foram processadas.
+ */
+export async function backfillMetaMonth(conn: typeof schema.metaConnections.$inferSelect, year: number, month: number) {
+  const token = decrypt(conn.accessTokenEnc);
+  const since = `${year}-${String(month).padStart(2, "0")}-01`;
+  const until = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10); // último dia do mês
+  let next: string | null = `${conn.adAccountId}/insights`;
+  let params: Record<string, string> = {
+    level: "campaign",
+    time_increment: "1",
+    time_range: JSON.stringify({ since, until }),
+    fields: "campaign_id,campaign_name,spend,impressions,reach,clicks,actions",
+    limit: "500",
+  };
+  let rows = 0;
+  while (next) {
+    const page: Paged<Insight> = await graph<Paged<Insight>>(next, token, params);
+    for (const i of page.data) {
+      await db
+        .insert(schema.metaCampaigns)
+        .values({
+          companyId: conn.companyId,
+          connectionId: conn.id,
+          metaCampaignId: i.campaign_id,
+          name: i.campaign_name ?? i.campaign_id,
+          status: "ARCHIVED",
+        })
+        .onConflictDoNothing({ target: [schema.metaCampaigns.companyId, schema.metaCampaigns.metaCampaignId] });
+      await db
+        .insert(schema.metaInsightsDaily)
+        .values({
+          companyId: conn.companyId,
+          metaCampaignId: i.campaign_id,
+          date: i.date_start,
+          spendCents: Math.round(Number(i.spend ?? 0) * 100),
+          impressions: Number(i.impressions ?? 0),
+          reach: Number(i.reach ?? 0),
+          clicks: Number(i.clicks ?? 0),
+          leads: sumActions(i.actions, LEAD_ACTIONS),
+          messagesStarted: sumActions(i.actions, MSG_ACTIONS),
+        })
+        .onConflictDoUpdate({
+          target: [schema.metaInsightsDaily.companyId, schema.metaInsightsDaily.metaCampaignId, schema.metaInsightsDaily.date],
+          set: {
+            spendCents: sql`excluded.spend_cents`,
+            impressions: sql`excluded.impressions`,
+            reach: sql`excluded.reach`,
+            clicks: sql`excluded.clicks`,
+            leads: sql`excluded.leads`,
+            messagesStarted: sql`excluded.messages_started`,
+          },
+        });
+      rows++;
+    }
+    next = page.paging?.next ? page.paging.next.replace(`${GRAPH}/`, "").split("?")[0] : null;
+    if (page.paging?.next) {
+      params = Object.fromEntries(new URL(page.paging.next).searchParams);
+      delete params.access_token;
+    }
+  }
+  return { rows };
 }
 
 /** Busca os dados de um lead de formulário (Lead Ads). */
