@@ -31,7 +31,7 @@ export function PeriodPicker({ p, d, m }: { p: string; d: string; m: string }) {
           type="month"
           defaultValue={m}
           onChange={(e) => e.target.value && router.push(`/dashboard?p=mes&m=${e.target.value}`)}
-          className="input w-40"
+          className="input w-48"
         />
       ) : (
         <input

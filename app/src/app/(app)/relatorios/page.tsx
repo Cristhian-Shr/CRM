@@ -5,19 +5,35 @@ import { PageHeader } from "@/components/ui";
 import { getContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
-import { money, monthLabel, monthRange, todayISO, ucfirst } from "@/lib/utils";
+import { normGroup, operationalReport } from "@/lib/reports";
+import { fmtISODate, money, monthLabel, monthRange, todayISO, ucfirst } from "@/lib/utils";
+import { ReportFilters } from "./report-filters";
+import { ReportTable } from "./report-table";
 
 export const metadata = { title: "Relatórios" };
 
 type Row = Record<string, unknown>;
 
-export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ mes?: string }> }) {
+const isDate = (s: string | undefined): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+export default async function ReportsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ mes?: string; from?: string; to?: string; group?: string }>;
+}) {
   const ctx = await getContext();
   if (!can(ctx, "reports.viewAll")) redirect("/dashboard");
-  const { mes } = await searchParams;
-  const month = mes && /^\d{4}-\d{2}$/.test(mes) ? mes : todayISO().slice(0, 7);
+  const sp = await searchParams;
+  const month = sp.mes && /^\d{4}-\d{2}$/.test(sp.mes) ? sp.mes : todayISO().slice(0, 7);
   const { start, end } = monthRange(month);
   const cid = ctx.companyId;
+
+  // Relatório operacional (intervalo De/Até + agrupamento) — padrão: mês atual até hoje.
+  const today = todayISO();
+  const from = isDate(sp.from) ? sp.from : `${today.slice(0, 7)}-01`;
+  const to = isDate(sp.to) ? sp.to : today;
+  const group = normGroup(sp.group);
+  const report = await operationalReport(cid, from, to, group);
 
   const [bySource, funnel, trend, losses, topProcedures] = await Promise.all([
     db.execute(sql`
@@ -64,6 +80,20 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           </form>
         }
       />
+      <div className="card mb-6 p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold">Relatório operacional</h2>
+            <p className="text-sm text-muted">
+              {fmtISODate(from)} a {fmtISODate(to)} · Leads, agendamentos, vendas e faturamento.
+            </p>
+          </div>
+        </div>
+        <ReportFilters from={from} to={to} group={group} today={today} />
+        <div className="mt-5">
+          <ReportTable data={report} group={group} />
+        </div>
+      </div>
       <div className="grid gap-6 xl:grid-cols-2">
         <div className="card p-5">
           <h2 className="mb-4 text-lg font-semibold">Faturamento dos últimos 6 meses</h2>
