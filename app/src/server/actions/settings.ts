@@ -5,7 +5,7 @@ import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getContext } from "@/lib/auth";
-import { encrypt } from "@/lib/crypto";
+import { decrypt, encrypt } from "@/lib/crypto";
 import { db, schema } from "@/lib/db";
 import { audit } from "@/lib/db/tenant";
 import { assertCan } from "@/lib/permissions";
@@ -330,6 +330,88 @@ export async function disconnectWhatsapp() {
   const ctx = await adminCtx("integrations.manage");
   await db.update(schema.whatsappAccounts).set({ status: "pending" }).where(eq(schema.whatsappAccounts.companyId, ctx.companyId));
   revalidatePath("/configuracoes/integracoes");
+}
+
+const GRAPH = "https://graph.facebook.com/v21.0";
+
+type MetaError = { message?: string; code?: number; error_subcode?: number };
+
+/** Traduz os erros mais comuns da Graph API para mensagens em português, acionáveis pela clínica. */
+function metaErrorPt(err: MetaError | undefined, status: number): string {
+  const code = err?.code;
+  if (code === 190) return "Token inválido ou expirado. Gere um novo token de System User (permanente) e salve novamente.";
+  if (code === 100)
+    return "Não foi possível acessar este número. Confira se o Phone Number ID está correto e se o Usuário do Sistema tem acesso à conta do WhatsApp Business (WABA) com a permissão whatsapp_business_management.";
+  if (code === 10 || code === 200 || code === 299 || code === 3)
+    return "O token não tem as permissões necessárias. Gere o token marcando whatsapp_business_messaging e whatsapp_business_management.";
+  if (code === 131030) return "O número de destino não está autorizado. Em contas de teste, só números cadastrados na Meta recebem mensagens.";
+  if (code === 132000 || code === 132001) return "O template não corresponde ao esperado (nome, idioma ou número de variáveis). Confira o template aprovado na Meta.";
+  if (code === 4 || code === 80007 || code === 130429) return "Limite de requisições da Meta atingido. Tente novamente em alguns minutos.";
+  return `A Meta recusou a conexão${code ? ` (código ${code})` : ` (HTTP ${status})`}. Verifique o Phone Number ID e o token.`;
+}
+
+/** Lista as permissões concedidas ao token (ou null se não der para determinar). */
+async function grantedScopes(token: string): Promise<string[] | null> {
+  try {
+    const res = await fetch(`${GRAPH}/me/permissions?access_token=${encodeURIComponent(token)}`);
+    const json = (await res.json()) as { data?: { permission: string; status: string }[] };
+    if (!res.ok || !json.data?.length) return null;
+    return json.data.filter((p) => p.status === "granted").map((p) => p.permission);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Testa a conexão salva do WhatsApp: valida Phone Number ID + token na Graph API e,
+ * se houver template de confirmação configurado, confere se está aprovado na Meta.
+ * Devolve em `id` uma descrição do número conectado para exibir ao usuário.
+ */
+export async function testWhatsapp(): Promise<ReturnType<typeof safe>> {
+  return safe(async () => {
+    const ctx = await adminCtx("integrations.manage");
+    const acc = await db.query.whatsappAccounts.findFirst({ where: eq(schema.whatsappAccounts.companyId, ctx.companyId) });
+    if (!acc?.phoneNumberId || !acc.accessTokenEnc) throw new Error("Salve o Phone Number ID e o token antes de testar.");
+    const token = decrypt(acc.accessTokenEnc);
+
+    // 1) Número + token válidos?
+    const res = await fetch(`${GRAPH}/${acc.phoneNumberId}?fields=verified_name,display_phone_number,code_verification_status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const info = (await res.json()) as { verified_name?: string; display_phone_number?: string; error?: MetaError };
+    if (!res.ok) {
+      // Diagnóstico mais preciso: o token tem mesmo as permissões de WhatsApp?
+      const scopes = await grantedScopes(token);
+      if (scopes && !scopes.includes("whatsapp_business_management")) {
+        throw new Error(
+          `O token não tem as permissões de WhatsApp (concedidas: ${scopes.join(", ")}). Gere um token de Usuário do Sistema marcando whatsapp_business_messaging e whatsapp_business_management, e confirme o Phone Number ID.`,
+        );
+      }
+      throw new Error(metaErrorPt(info.error, res.status));
+    }
+    const label = [info.verified_name, info.display_phone_number].filter(Boolean).join(" · ") || acc.phoneNumberId;
+
+    // 2) Template de confirmação aprovado? (não bloqueia se não der para verificar)
+    const tplName = acc.settings?.confirmTemplate?.name;
+    if (tplName && acc.wabaId) {
+      try {
+        const tplRes = await fetch(`${GRAPH}/${acc.wabaId}/message_templates?name=${encodeURIComponent(tplName)}&fields=name,status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const tpl = (await tplRes.json()) as { data?: { name: string; status: string }[] };
+        if (tplRes.ok) {
+          const found = tpl.data?.find((t) => t.name === tplName);
+          if (!found) throw new Error(`Número OK (${label}), mas o template "${tplName}" não foi encontrado nesta conta da Meta.`);
+          if (found.status !== "APPROVED") throw new Error(`Número OK (${label}), mas o template "${tplName}" está "${found.status}" — precisa estar APPROVED para enviar lembretes.`);
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message.startsWith("Número OK")) throw e;
+        // falha ao consultar o template (ex.: permissão) não invalida o teste do número.
+      }
+    }
+
+    return { ok: true, id: label };
+  });
 }
 
 export async function saveMeta(fd: FormData) {

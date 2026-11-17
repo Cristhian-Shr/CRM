@@ -5,7 +5,7 @@ import { PageHeader, StatCard } from "@/components/ui";
 import { Money } from "@/components/values-visibility";
 import { db, schema } from "@/lib/db";
 import { monthLabel, todayISO, ucfirst } from "@/lib/utils";
-import { COMPANY_SERVICES, serviceMeta } from "@/lib/services";
+import { COMPANY_SERVICES } from "@/lib/services";
 
 export const metadata = { title: "Início" };
 
@@ -44,15 +44,24 @@ export default async function MasterHomePage() {
     .where(eq(schema.serviceRequests.status, "pending"));
 
   // Receita por serviço no mês (soma os lançamentos do mês por serviço).
+  const serviceKeys = new Set<string>(COMPANY_SERVICES.map((s) => s.key));
   const perService = COMPANY_SERVICES.map((s) => {
     const rows = payments.filter((p) => p.service === s.key);
     return {
-      ...s,
+      key: s.key as string,
+      label: s.label as string,
+      bar: s.bar as string,
       total: rows.reduce((a, p) => a + p.valueCents, 0),
       recurring: rows.some((p) => p.billing != null && p.billing !== "one_time"),
     };
   });
-  const maxTotal = Math.max(1, ...perService.map((s) => s.total));
+  // Lançamentos avulsos (service fora dos serviços recorrentes, ex.: "extra") também compõem a receita do mês.
+  const extrasTotal = payments.filter((p) => !serviceKeys.has(p.service)).reduce((a, p) => a + p.valueCents, 0);
+  const revenueRows =
+    extrasTotal > 0
+      ? [...perService, { key: "extra", label: "Extras (avulsos)", bar: "bg-slate-400", total: extrasTotal, recurring: false }]
+      : perService;
+  const maxTotal = Math.max(1, ...revenueRows.map((s) => s.total));
 
   return (
     <>
@@ -69,32 +78,29 @@ export default async function MasterHomePage() {
         <div className="card p-5 lg:col-span-2">
           <h2 className="mb-4 text-sm font-semibold tracking-[0.12em] text-muted uppercase">Receita mensal por serviço</h2>
           <div className="space-y-4">
-            {perService.map((s) => {
-              const meta = serviceMeta(s.key);
-              return (
-                <div key={s.key}>
-                  <div className="mb-1 flex items-center justify-between text-sm">
-                    <span className="font-medium">{s.label}</span>
-                    <span className="text-muted">
-                      {s.total > 0 ? (
-                        <strong className="text-ink">
-                          <Money value={s.total} />
-                          {s.recurring ? "/mês" : ""}
-                        </strong>
-                      ) : (
-                        "—"
-                      )}
-                    </span>
-                  </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-canvas">
-                    <div
-                      className={`h-full rounded-full ${meta?.bar ?? "bg-brand-500"}`}
-                      style={{ width: `${Math.round((s.total / maxTotal) * 100)}%` }}
-                    />
-                  </div>
+            {revenueRows.map((s) => (
+              <div key={s.key}>
+                <div className="mb-1 flex items-center justify-between text-sm">
+                  <span className="font-medium">{s.label}</span>
+                  <span className="text-muted">
+                    {s.total > 0 ? (
+                      <strong className="text-ink">
+                        <Money value={s.total} />
+                        {s.recurring ? "/mês" : ""}
+                      </strong>
+                    ) : (
+                      "—"
+                    )}
+                  </span>
                 </div>
-              );
-            })}
+                <div className="h-2 w-full overflow-hidden rounded-full bg-canvas">
+                  <div
+                    className={`h-full rounded-full ${s.bar ?? "bg-brand-500"}`}
+                    style={{ width: `${Math.round((s.total / maxTotal) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 

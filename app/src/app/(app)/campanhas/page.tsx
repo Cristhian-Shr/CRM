@@ -9,6 +9,7 @@ import { db, schema } from "@/lib/db";
 import { can } from "@/lib/permissions";
 import { cn, fmtDateTime, money, todayISO } from "@/lib/utils";
 import { syncMetaNow } from "@/server/actions/campaigns";
+import { BackfillButton } from "./backfill-button";
 
 export const metadata = { title: "Campanhas Meta" };
 
@@ -97,6 +98,7 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pr
             <Link href={sp.todas ? `?dias=${days}` : `?dias=${days}&todas=1`} className="btn-secondary">
               {sp.todas ? "Só ativas" : "Ver todas"}
             </Link>
+            <BackfillButton />
             <ActionButton action={syncMetaNow} className="btn-primary">
               Atualizar agora
             </ActionButton>
