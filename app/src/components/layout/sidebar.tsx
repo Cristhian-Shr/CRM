@@ -31,7 +31,7 @@ const ITEMS: Item[] = [
   { href: "/funil", label: "Funil de Vendas", icon: Kanban },
   { href: "/clientes", label: "Leads / Clientes", icon: Users },
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
-  { href: "/catalogo", label: "Procedimentos e Programas", icon: Syringe },
+  { href: "/catalogo", label: "Procedimentos / Programas", icon: Syringe },
   { href: "/orcamentos", label: "Orçamentos", icon: FileText },
   { href: "/campanhas", label: "Campanhas Meta", icon: Megaphone, adminOnly: true },
   { href: "/financeiro", label: "Financeiro", icon: Receipt, adminOnly: true },

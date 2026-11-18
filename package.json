@@ -1,0 +1,17 @@
+{
+  "name": "crm-estetica-root",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev --prefix app",
+    "build": "npm run build --prefix app",
+    "start": "npm run start --prefix app",
+    "lint": "npm run lint --prefix app",
+    "typecheck": "npm run typecheck --prefix app",
+    "db:generate": "npm run db:generate --prefix app",
+    "db:migrate": "npm run db:migrate --prefix app",
+    "db:seed": "npm run db:seed --prefix app",
+    "db:user": "npm run db:user --prefix app",
+    "install:app": "npm install --prefix app"
+  }
+}

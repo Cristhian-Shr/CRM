@@ -99,11 +99,13 @@ export default async function SettingsPage() {
           <div className="space-y-2">
             {stages.map((s, i) => (
               <div key={s.id} className="flex items-center gap-2 rounded-xl border border-line p-2">
-                <Form action={updateStage.bind(null, s.id)} resetOnSuccess={false} className="flex flex-1 items-center gap-2 space-y-0">
-                  <input type="color" name="color" defaultValue={s.color} className="size-8 shrink-0 cursor-pointer rounded border-0 bg-transparent" />
-                  <input name="name" defaultValue={s.name} className="input py-1.5" />
-                  <span className="badge shrink-0 bg-canvas text-muted">{KIND[s.kind]}</span>
-                  <Submit className="btn-ghost px-2 py-1 text-xs">Salvar</Submit>
+                <Form action={updateStage.bind(null, s.id)} resetOnSuccess={false} className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <input type="color" name="color" defaultValue={s.color} className="size-8 shrink-0 cursor-pointer rounded border-0 bg-transparent" />
+                    <input name="name" defaultValue={s.name} className="input py-1.5" />
+                    <span className="badge shrink-0 bg-canvas text-muted">{KIND[s.kind]}</span>
+                    <Submit className="btn-ghost px-2 py-1 text-xs">Salvar</Submit>
+                  </div>
                 </Form>
                 <form action={moveStage.bind(null, s.id, -1)}>
                   <button className="btn-ghost p-1.5" disabled={i === 0} aria-label="Subir">
@@ -134,17 +136,19 @@ export default async function SettingsPage() {
               </form>
             ))}
           </div>
-          <Form action={addSource} className="flex gap-2 space-y-0">
-            <input name="name" required placeholder="Nova origem" className="input" />
-            <select name="type" className="input w-40">
-              <option value="paid_ad">Anúncio pago</option>
-              <option value="organic">Orgânico</option>
-              <option value="referral">Indicação</option>
-              <option value="partnership">Parceria</option>
-              <option value="website">Site</option>
-              <option value="other">Outro</option>
-            </select>
-            <Submit className="btn-secondary">Adicionar</Submit>
+          <Form action={addSource}>
+            <div className="flex items-center gap-2">
+              <input name="name" required placeholder="Nova origem" className="input" />
+              <select name="type" className="input w-40">
+                <option value="paid_ad">Anúncio pago</option>
+                <option value="organic">Orgânico</option>
+                <option value="referral">Indicação</option>
+                <option value="partnership">Parceria</option>
+                <option value="website">Site</option>
+                <option value="other">Outro</option>
+              </select>
+              <Submit className="btn-secondary">Adicionar</Submit>
+            </div>
           </Form>
         </section>
 
@@ -157,25 +161,29 @@ export default async function SettingsPage() {
               </span>
             ))}
           </div>
-          <Form action={addLossReason} className="flex gap-2 space-y-0">
-            <input name="name" required placeholder="Novo motivo" className="input" />
-            <Submit className="btn-secondary">Adicionar</Submit>
+          <Form action={addLossReason}>
+            <div className="flex items-center gap-2">
+              <input name="name" required placeholder="Novo motivo" className="input" />
+              <Submit className="btn-secondary">Adicionar</Submit>
+            </div>
           </Form>
         </section>
 
         <section className="card p-5">
           <h2 className="mb-4 text-lg font-semibold">Metas</h2>
-          <Form action={saveGoal} className="mb-4 grid grid-cols-2 gap-3 space-y-0 md:grid-cols-4">
-            <select name="metric" className="input">
-              {Object.entries(METRIC).map(([k, l]) => (
-                <option key={k} value={k}>
-                  {l}
-                </option>
-              ))}
-            </select>
-            <input name="month" type="month" defaultValue={todayISO().slice(0, 7)} className="input" />
-            <input name="target" required placeholder="Valor" className="input" inputMode="decimal" />
-            <Submit className="btn-secondary">Definir meta</Submit>
+          <Form action={saveGoal} className="mb-4">
+            <div className="grid grid-cols-2 items-center gap-3 md:grid-cols-4">
+              <select name="metric" className="input">
+                {Object.entries(METRIC).map(([k, l]) => (
+                  <option key={k} value={k}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+              <input name="month" type="month" defaultValue={todayISO().slice(0, 7)} className="input" />
+              <input name="target" required placeholder="Valor" className="input" inputMode="decimal" />
+              <Submit className="btn-secondary">Definir meta</Submit>
+            </div>
           </Form>
           <table className="table">
             <tbody>

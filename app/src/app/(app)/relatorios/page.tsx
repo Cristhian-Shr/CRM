@@ -2,129 +2,151 @@ import { sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { AutoSubmitInput } from "@/components/auto-submit";
 import { PageHeader } from "@/components/ui";
+import { STATUS_LABEL } from "@/lib/agenda";
 import { getContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
-import { normGroup, operationalReport } from "@/lib/reports";
-import { fmtISODate, money, monthLabel, monthRange, todayISO, ucfirst } from "@/lib/utils";
-import { ReportFilters } from "./report-filters";
-import { ReportTable } from "./report-table";
+import { fmtISODate, money, todayISO, zonedToUtc } from "@/lib/utils";
+import { PrintButton } from "./print-button";
+import { ReportSection } from "./report-section";
 
 export const metadata = { title: "Relatórios" };
 
 type Row = Record<string, unknown>;
+const n = (v: unknown) => Number(v ?? 0);
 
-const isDate = (s: string | undefined): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
+/** Soma 1 dia a uma data "YYYY-MM-DD" (para tornar o fim do período inclusivo). */
+function nextDay(ymd: string) {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
 
-export default async function ReportsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ mes?: string; from?: string; to?: string; group?: string }>;
-}) {
+const isDate = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ de?: string; ate?: string }> }) {
   const ctx = await getContext();
   if (!can(ctx, "reports.viewAll")) redirect("/dashboard");
-  const sp = await searchParams;
-  const month = sp.mes && /^\d{4}-\d{2}$/.test(sp.mes) ? sp.mes : todayISO().slice(0, 7);
-  const { start, end } = monthRange(month);
+
+  const { de: deRaw, ate: ateRaw } = await searchParams;
+  const today = todayISO();
+  const de = isDate(deRaw) ? deRaw : `${today.slice(0, 7)}-01`;
+  const ate = isDate(ateRaw) ? ateRaw : today;
+  const start = zonedToUtc(`${de}T00:00`);
+  const end = zonedToUtc(`${nextDay(ate)}T00:00`);
   const cid = ctx.companyId;
 
-  // Relatório operacional (intervalo De/Até + agrupamento) — padrão: mês atual até hoje.
-  const today = todayISO();
-  const from = isDate(sp.from) ? sp.from : `${today.slice(0, 7)}-01`;
-  const to = isDate(sp.to) ? sp.to : today;
-  const group = normGroup(sp.group);
-  const report = await operationalReport(cid, from, to, group);
-
-  const [bySource, funnel, trend, losses, topProcedures] = await Promise.all([
+  const [leads, sales, openOrders, cancelledOrders, losses, apptByStatus, apptByPro] = await Promise.all([
+    // Entrada de leads por origem
     db.execute(sql`
       select coalesce(s.name, 'Sem origem') as name, count(c.id) as leads,
         count(c.id) filter (where c.status = 'client') as clients
       from contacts c left join lead_sources s on s.id = c.source_id
       where c.company_id = ${cid} and c.deleted_at is null and c.created_at >= ${start} and c.created_at < ${end}
       group by 1 order by 2 desc`),
+    // Vendas realizadas (comandas confirmadas/pagas) por vendedor
     db.execute(sql`
-      select s.name, s.color, count(d.id) as n, coalesce(sum(d.value_cents),0) as value
-      from pipeline_stages s left join deals d on d.stage_id = s.id and d.deleted_at is null
-      where s.company_id = ${cid} group by s.id order by s.position`),
+      select coalesce(u.name, 'Sem vendedor') as seller, count(o.id) as n, coalesce(sum(o.total_cents),0) as value
+      from orders o
+      left join company_members cm on cm.id = o.seller_id
+      left join users u on u.id = cm.user_id
+      where o.company_id = ${cid} and o.status in ('confirmed','paid')
+        and o.confirmed_at >= ${start} and o.confirmed_at < ${end}
+      group by 1 order by 3 desc`),
+    // Comandas em aberto (não finalizadas)
     db.execute(sql`
-      select to_char(date_trunc('month', o.confirmed_at at time zone 'America/Sao_Paulo'), 'YYYY-MM') as m,
-        sum(o.total_cents) as revenue, count(*) as orders
-      from orders o where o.company_id = ${cid} and o.status in ('confirmed','paid')
-        and o.confirmed_at >= now() - interval '6 months'
-      group by 1 order by 1`),
+      select count(*) as n, coalesce(sum(total_cents),0) as value
+      from orders where company_id = ${cid} and status = 'draft'
+        and created_at >= ${start} and created_at < ${end}`),
+    // Comandas canceladas
     db.execute(sql`
-      select coalesce(r.name, 'Sem motivo') as name, count(*) as n
+      select count(*) as n, coalesce(sum(total_cents),0) as value
+      from orders where company_id = ${cid} and status = 'cancelled'
+        and created_at >= ${start} and created_at < ${end}`),
+    // Negócios perdidos no funil, por motivo
+    db.execute(sql`
+      select coalesce(r.name, 'Sem motivo') as name, count(*) as n, coalesce(sum(d.value_cents),0) as value
       from deals d left join loss_reasons r on r.id = d.loss_reason_id
       where d.company_id = ${cid} and d.lost_at >= ${start} and d.lost_at < ${end}
       group by 1 order by 2 desc`),
+    // Agendamentos por status
     db.execute(sql`
-      select p.name, count(*) as n
-      from appointments a join procedures p on p.id = a.procedure_id
-      where a.company_id = ${cid} and a.status = 'done' and a.starts_at >= ${start} and a.starts_at < ${end}
-      group by 1 order by 2 desc limit 10`),
+      select status, count(*) as n
+      from appointments
+      where company_id = ${cid} and starts_at >= ${start} and starts_at < ${end}
+      group by 1`),
+    // Agendamentos por colaborador
+    db.execute(sql`
+      select coalesce(u.name, 'Sem profissional') as pro, count(*) as total,
+        count(*) filter (where a.status = 'done') as done,
+        count(*) filter (where a.status in ('scheduled','confirmed','waiting','in_progress')) as upcoming,
+        count(*) filter (where a.status = 'no_show') as no_show,
+        count(*) filter (where a.status = 'cancelled') as cancelled
+      from appointments a
+      left join company_members cm on cm.id = a.professional_id
+      left join users u on u.id = cm.user_id
+      where a.company_id = ${cid} and a.starts_at >= ${start} and a.starts_at < ${end}
+      group by 1 order by 2 desc`),
   ]);
 
-  const trendRows = trend.rows as Row[];
-  const maxRev = Math.max(1, ...trendRows.map((r) => Number(r.revenue)));
-  const funnelRows = funnel.rows as Row[];
-  const maxFunnel = Math.max(1, ...funnelRows.map((r) => Number(r.n)));
+  const leadRows = leads.rows as Row[];
+  const saleRows = sales.rows as Row[];
+  const lossRows = losses.rows as Row[];
+  const apptStatusRows = apptByStatus.rows as Row[];
+  const apptProRows = apptByPro.rows as Row[];
+
+  const totalLeads = leadRows.reduce((s, r) => s + n(r.leads), 0);
+  const salesCount = saleRows.reduce((s, r) => s + n(r.n), 0);
+  const salesValue = saleRows.reduce((s, r) => s + n(r.value), 0);
+  const open = openOrders.rows[0] as Row;
+  const cancelled = cancelledOrders.rows[0] as Row;
+  const lostCount = lossRows.reduce((s, r) => s + n(r.n), 0);
+  const lostValue = lossRows.reduce((s, r) => s + n(r.value), 0);
+  const apptTotal = apptStatusRows.reduce((s, r) => s + n(r.n), 0);
+
+  const cards = [
+    { label: "Leads no período", value: String(totalLeads) },
+    { label: "Vendas realizadas", value: money(salesValue), hint: `${salesCount} comanda(s)` },
+    { label: "Vendas não concluídas", value: String(n(open.n) + n(cancelled.n) + lostCount), hint: "abertas + canceladas + perdidas" },
+    { label: "Agendamentos", value: String(apptTotal) },
+  ];
 
   return (
     <>
       <PageHeader
         title="Relatórios"
-        subtitle={<span>{ucfirst(monthLabel(month))}</span>}
+        subtitle={<span>Período de {fmtISODate(de)} até {fmtISODate(ate)}</span>}
         actions={
-          <form>
-            <AutoSubmitInput type="month" name="mes" defaultValue={month} className="input w-44" />
-          </form>
+          <>
+            <form className="flex items-end gap-2 print:hidden">
+              <label className="text-xs text-muted">
+                De
+                <AutoSubmitInput type="date" name="de" defaultValue={de} className="input mt-0.5 w-40" />
+              </label>
+              <label className="text-xs text-muted">
+                Até
+                <AutoSubmitInput type="date" name="ate" defaultValue={ate} className="input mt-0.5 w-40" />
+              </label>
+            </form>
+            <PrintButton />
+          </>
         }
       />
-      <div className="card mb-6 p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-lg font-semibold">Relatório operacional</h2>
-            <p className="text-sm text-muted">
-              {fmtISODate(from)} a {fmtISODate(to)} · Leads, agendamentos, vendas e faturamento.
-            </p>
+
+      {/* Resumo */}
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {cards.map((c) => (
+          <div key={c.label} className="card p-4">
+            <p className="text-xs text-muted">{c.label}</p>
+            <p className="mt-1 text-2xl font-semibold">{c.value}</p>
+            {c.hint && <p className="text-xs text-muted">{c.hint}</p>}
           </div>
-        </div>
-        <ReportFilters from={from} to={to} group={group} today={today} />
-        <div className="mt-5">
-          <ReportTable data={report} group={group} />
-        </div>
+        ))}
       </div>
+
       <div className="grid gap-6 xl:grid-cols-2">
-        <div className="card p-5">
-          <h2 className="mb-4 text-lg font-semibold">Faturamento dos últimos 6 meses</h2>
-          <div className="flex h-48 items-end gap-3">
-            {trendRows.map((r) => (
-              <div key={String(r.m)} className="flex flex-1 flex-col items-center gap-1">
-                <span className="text-[11px] text-muted">{money(Number(r.revenue))}</span>
-                <div className="w-full rounded-t-lg bg-brand-400" style={{ height: `${(Number(r.revenue) / maxRev) * 140}px` }} />
-                <span className="text-xs text-muted capitalize">{monthLabel(String(r.m)).split(" ")[0].slice(0, 3)}</span>
-              </div>
-            ))}
-            {trendRows.length === 0 && <p className="text-sm text-muted">Sem vendas confirmadas no período.</p>}
-          </div>
-        </div>
-        <div className="card p-5">
-          <h2 className="mb-4 text-lg font-semibold">Funil agora</h2>
-          <div className="space-y-2">
-            {funnelRows.map((r) => (
-              <div key={String(r.name)} className="flex items-center gap-3 text-sm">
-                <span className="w-40 truncate">{String(r.name)}</span>
-                <div className="h-6 flex-1 overflow-hidden rounded-lg bg-canvas">
-                  <div className="h-full rounded-lg" style={{ width: `${(Number(r.n) / maxFunnel) * 100}%`, background: String(r.color) }} />
-                </div>
-                <span className="w-8 text-right font-semibold">{Number(r.n)}</span>
-                <span className="w-28 text-right text-muted">{money(Number(r.value))}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="card p-5">
-          <h2 className="mb-3 text-lg font-semibold">Leads por origem</h2>
+        {/* Entrada de leads por origem */}
+        <ReportSection title="Entrada de leads por origem">
           <table className="table">
             <thead>
               <tr>
@@ -135,39 +157,141 @@ export default async function ReportsPage({
               </tr>
             </thead>
             <tbody>
-              {(bySource.rows as Row[]).map((r) => (
+              {leadRows.map((r) => (
                 <tr key={String(r.name)}>
                   <td>{String(r.name)}</td>
-                  <td className="text-right">{Number(r.leads)}</td>
-                  <td className="text-right">{Number(r.clients)}</td>
-                  <td className="text-right">{Number(r.leads) ? Math.round((Number(r.clients) / Number(r.leads)) * 100) : 0}%</td>
+                  <td className="text-right">{n(r.leads)}</td>
+                  <td className="text-right">{n(r.clients)}</td>
+                  <td className="text-right">{n(r.leads) ? Math.round((n(r.clients) / n(r.leads)) * 100) : 0}%</td>
+                </tr>
+              ))}
+              {leadRows.length > 0 && (
+                <tr className="font-semibold">
+                  <td>Total</td>
+                  <td className="text-right">{totalLeads}</td>
+                  <td className="text-right">{leadRows.reduce((s, r) => s + n(r.clients), 0)}</td>
+                  <td className="text-right"></td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+          {leadRows.length === 0 && <p className="text-sm text-muted">Nenhum lead no período.</p>}
+        </ReportSection>
+
+        {/* Vendas realizadas por vendedor */}
+        <ReportSection title="Vendas realizadas por vendedor">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Vendedor</th>
+                <th className="text-right">Comandas</th>
+                <th className="text-right">Valor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {saleRows.map((r) => (
+                <tr key={String(r.seller)}>
+                  <td>{String(r.seller)}</td>
+                  <td className="text-right">{n(r.n)}</td>
+                  <td className="text-right">{money(n(r.value))}</td>
+                </tr>
+              ))}
+              {saleRows.length > 0 && (
+                <tr className="font-semibold">
+                  <td>Total</td>
+                  <td className="text-right">{salesCount}</td>
+                  <td className="text-right">{money(salesValue)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+          {saleRows.length === 0 && <p className="text-sm text-muted">Nenhuma venda concluída no período.</p>}
+        </ReportSection>
+
+        {/* Vendas não concluídas */}
+        <ReportSection title="Vendas não concluídas">
+          <div className="mb-4 grid grid-cols-3 gap-3 text-center">
+            <div className="rounded-xl bg-canvas p-3">
+              <p className="text-xs text-muted">Comandas em aberto</p>
+              <p className="text-xl font-semibold">{n(open.n)}</p>
+              <p className="text-xs text-muted">{money(n(open.value))}</p>
+            </div>
+            <div className="rounded-xl bg-canvas p-3">
+              <p className="text-xs text-muted">Comandas canceladas</p>
+              <p className="text-xl font-semibold">{n(cancelled.n)}</p>
+              <p className="text-xs text-muted">{money(n(cancelled.value))}</p>
+            </div>
+            <div className="rounded-xl bg-canvas p-3">
+              <p className="text-xs text-muted">Negócios perdidos</p>
+              <p className="text-xl font-semibold">{lostCount}</p>
+              <p className="text-xs text-muted">{money(lostValue)}</p>
+            </div>
+          </div>
+          <h3 className="mb-2 text-sm font-semibold text-muted">Motivos de perda</h3>
+          {lossRows.map((r) => (
+            <div key={String(r.name)} className="flex justify-between border-b border-line py-1.5 text-sm">
+              <span>{String(r.name)}</span>
+              <span className="font-semibold">{n(r.n)}</span>
+            </div>
+          ))}
+          {lossRows.length === 0 && <p className="text-sm text-muted">Nenhum negócio perdido no período.</p>}
+        </ReportSection>
+
+        {/* Agendamentos por status */}
+        <ReportSection title="Agendamentos por status">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th className="text-right">Qtd</th>
+              </tr>
+            </thead>
+            <tbody>
+              {apptStatusRows.map((r) => (
+                <tr key={String(r.status)}>
+                  <td>{STATUS_LABEL[String(r.status)] ?? String(r.status)}</td>
+                  <td className="text-right">{n(r.n)}</td>
+                </tr>
+              ))}
+              {apptStatusRows.length > 0 && (
+                <tr className="font-semibold">
+                  <td>Total</td>
+                  <td className="text-right">{apptTotal}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+          {apptStatusRows.length === 0 && <p className="text-sm text-muted">Nenhum agendamento no período.</p>}
+        </ReportSection>
+
+        {/* Agendamentos por colaborador */}
+        <ReportSection title="Agendamentos por colaborador" className="xl:col-span-2">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Colaborador</th>
+                <th className="text-right">Total</th>
+                <th className="text-right">Atendidos</th>
+                <th className="text-right">Agendados</th>
+                <th className="text-right">Faltas</th>
+                <th className="text-right">Desmarcados</th>
+              </tr>
+            </thead>
+            <tbody>
+              {apptProRows.map((r) => (
+                <tr key={String(r.pro)}>
+                  <td>{String(r.pro)}</td>
+                  <td className="text-right">{n(r.total)}</td>
+                  <td className="text-right">{n(r.done)}</td>
+                  <td className="text-right">{n(r.upcoming)}</td>
+                  <td className="text-right">{n(r.no_show)}</td>
+                  <td className="text-right">{n(r.cancelled)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-        <div className="grid gap-6">
-          <div className="card p-5">
-            <h2 className="mb-3 text-lg font-semibold">Motivos de perda</h2>
-            {(losses.rows as Row[]).map((r) => (
-              <div key={String(r.name)} className="flex justify-between border-b border-line py-1.5 text-sm">
-                <span>{String(r.name)}</span>
-                <span className="font-semibold">{Number(r.n)}</span>
-              </div>
-            ))}
-            {losses.rows.length === 0 && <p className="text-sm text-muted">Nenhuma perda no mês.</p>}
-          </div>
-          <div className="card p-5">
-            <h2 className="mb-3 text-lg font-semibold">Procedimentos mais realizados</h2>
-            {(topProcedures.rows as Row[]).map((r) => (
-              <div key={String(r.name)} className="flex justify-between border-b border-line py-1.5 text-sm">
-                <span>{String(r.name)}</span>
-                <span className="font-semibold">{Number(r.n)}</span>
-              </div>
-            ))}
-            {topProcedures.rows.length === 0 && <p className="text-sm text-muted">Nenhum atendimento realizado no mês.</p>}
-          </div>
-        </div>
+          {apptProRows.length === 0 && <p className="text-sm text-muted">Nenhum agendamento no período.</p>}
+        </ReportSection>
       </div>
     </>
   );

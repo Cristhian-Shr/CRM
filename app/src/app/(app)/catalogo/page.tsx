@@ -10,7 +10,7 @@ import { centsToInput, cn, money } from "@/lib/utils";
 import { saveProcedure, toggleProcedure, toggleProgram } from "@/server/actions/catalog";
 import { ProgramForm } from "./program-form";
 
-export const metadata = { title: "Procedimentos e Programas" };
+export const metadata = { title: "Procedimentos / Programas" };
 
 type Proc = typeof schema.procedures.$inferSelect;
 
@@ -61,7 +61,7 @@ export default async function CatalogPage() {
 
   return (
     <>
-      <PageHeader title="Procedimentos e Programas" subtitle="Catálogo usado na comanda e na agenda" />
+      <PageHeader title="Procedimentos / Programas" subtitle="Catálogo usado na comanda e na agenda" />
 
       <section className="mb-10">
         <div className="mb-3 flex items-center justify-between">

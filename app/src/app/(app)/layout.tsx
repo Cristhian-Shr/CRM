@@ -21,31 +21,33 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen">
-      <Sidebar
-        companyName={ctx.companyName}
-        userName={ctx.userName}
-        roleLabel={roleLabel}
-        isAdmin={ctx.role === "admin"}
-        isMaster={ctx.isMaster}
-        logout={logout}
-      />
-      <div className="lg:pl-72">
+      <div className="print:hidden">
+        <Sidebar
+          companyName={ctx.companyName}
+          userName={ctx.userName}
+          roleLabel={roleLabel}
+          isAdmin={ctx.role === "admin"}
+          isMaster={ctx.isMaster}
+          logout={logout}
+        />
+      </div>
+      <div className="lg:pl-72 print:pl-0">
         {ctx.impersonating && (
-          <div className="flex items-center justify-center gap-3 bg-amber-100 px-4 py-2 text-sm text-amber-900">
+          <div className="flex items-center justify-center gap-3 bg-amber-100 px-4 py-2 text-sm text-amber-900 print:hidden">
             Você está acessando <b>{ctx.companyName}</b> como master. Os acessos ficam registrados.
             <form action={leaveCompany}>
               <button className="underline">Sair da empresa</button>
             </form>
           </div>
         )}
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-end gap-2 border-b border-line bg-canvas/90 px-4 backdrop-blur md:px-8">
+        <header className="sticky top-0 z-20 flex h-16 items-center justify-end gap-2 border-b border-line bg-canvas/90 px-4 backdrop-blur md:px-8 print:hidden">
           <Link href="/clientes" className="input hidden max-w-xs text-muted md:block">
             Buscar cliente...
           </Link>
           <ThemeToggle />
           <NotificationBell items={notifications} />
         </header>
-        <main className="p-4 md:p-8">{children}</main>
+        <main className="p-4 md:p-8 print:p-0">{children}</main>
       </div>
     </div>
   );

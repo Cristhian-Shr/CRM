@@ -99,10 +99,33 @@ h1, h2, h3 {
 
 /* Impressão / exportação em PDF. */
 @media print {
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  @page {
+    margin: 1.2cm;
+  }
   .no-print {
     display: none !important;
   }
   body {
     background: #fff;
+  }
+
+  /* Impressão de uma única seção: mostra só o card ativo. */
+  body.printing-single * {
+    visibility: hidden;
+  }
+  body.printing-single [data-report-section].print-active,
+  body.printing-single [data-report-section].print-active * {
+    visibility: visible;
+  }
+  body.printing-single [data-report-section].print-active {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    border: none;
+    box-shadow: none;
   }
 }

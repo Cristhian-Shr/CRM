@@ -52,9 +52,11 @@ export default async function RoomsSettingsPage() {
             ))}
           </div>
         )}
-        <Form action={addRoom} className="mt-4 flex items-stretch gap-2 space-y-0">
-          <input name="name" required placeholder="Nova sala (ex.: Estética 3)" className="input flex-1" />
-          <Submit className="btn-secondary shrink-0">Adicionar</Submit>
+        <Form action={addRoom} className="mt-4">
+          <div className="flex items-center gap-2">
+            <input name="name" required placeholder="Nova sala (ex.: Estética 3)" className="input flex-1" />
+            <Submit className="btn-secondary shrink-0">Adicionar</Submit>
+          </div>
         </Form>
       </section>
     </>
