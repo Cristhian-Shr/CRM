@@ -56,10 +56,19 @@ export async function syncMetaConnection(conn: typeof schema.metaConnections.$in
     const acct = await graph<AcctInfo>(conn.adAccountId, token, {
       fields: "name,currency,account_status,balance,spend_cap,funding_source_details",
     });
-    // Meta não expõe o tipo de forma 100% estável; tratamos como pré-pago quando o display
-    // menciona boleto/pix/prepaid ou quando há `balance` positivo com funding de carteira.
+    // Detecção de funding é best-effort: o enum numérico `funding_source_details.type`
+    // da Meta não é documentado, então usamos o texto do display como sinal principal e só
+    // usamos `type` para PROMOVER a pré-pago quando o texto é ambíguo — nunca para sobrescrever
+    // uma correspondência de texto clara.
     const fundingStr = (acct.funding_source_details?.display_string ?? "").toLowerCase();
-    const fundingType = /pré|pre-?pag|prepaid|boleto|pix|wallet|saldo/.test(fundingStr) ? "prepaid" : "postpaid";
+    const prepaidByText = /pré|pre-?pag|prepaid|boleto|pix|wallet|saldo/i.test(fundingStr);
+    let fundingType = prepaidByText ? "prepaid" : "postpaid";
+    // Heurística best-effort: se o texto não deixou claro que é pré-pago mas a conta expõe um
+    // `type` estruturado (enum não documentado) e um `balance` positivo típico de pré-pago,
+    // promovemos para pré-pago.
+    if (!prepaidByText && acct.funding_source_details?.type != null && acct.balance != null && Number(acct.balance) > 0) {
+      fundingType = "prepaid";
+    }
     let pageName: string | null = null;
     if (conn.pageId) {
       try {
@@ -113,29 +122,32 @@ export async function syncMetaConnection(conn: typeof schema.metaConnections.$in
     }
 
     // ── Conjuntos ──
-    const adsets = await graph<Paged<{ id: string; name: string; status?: string; campaign_id: string; daily_budget?: string; lifetime_budget?: string }>>(
-      `${conn.adAccountId}/adsets`,
-      token,
-      { fields: "id,name,status,campaign_id,daily_budget,lifetime_budget", limit: "500" },
-    );
-    for (const a of adsets.data) {
-      await db
-        .insert(schema.metaAdsets)
-        .values({
-          companyId: conn.companyId,
-          connectionId: conn.id,
-          metaAdsetId: a.id,
-          metaCampaignId: a.campaign_id,
-          name: a.name,
-          status: a.status,
-          dailyBudgetCents: a.daily_budget ? Number(a.daily_budget) : null,
-          lifetimeBudgetCents: a.lifetime_budget ? Number(a.lifetime_budget) : null,
-          updatedAt: new Date(),
-        })
-        .onConflictDoUpdate({
-          target: [schema.metaAdsets.companyId, schema.metaAdsets.metaAdsetId],
-          set: { name: sql`excluded.name`, status: sql`excluded.status`, dailyBudgetCents: sql`excluded.daily_budget_cents`, lifetimeBudgetCents: sql`excluded.lifetime_budget_cents`, updatedAt: new Date() },
-        });
+    type AdsetRow = { id: string; name: string; status?: string; campaign_id: string; daily_budget?: string; lifetime_budget?: string };
+    let adsetNext: string | null = `${conn.adAccountId}/adsets`;
+    let adsetParams: Record<string, string> = { fields: "id,name,status,campaign_id,daily_budget,lifetime_budget", limit: "500" };
+    while (adsetNext) {
+      const page: Paged<AdsetRow> = await graph<Paged<AdsetRow>>(adsetNext, token, adsetParams);
+      for (const a of page.data) {
+        await db
+          .insert(schema.metaAdsets)
+          .values({
+            companyId: conn.companyId,
+            connectionId: conn.id,
+            metaAdsetId: a.id,
+            metaCampaignId: a.campaign_id,
+            name: a.name,
+            status: a.status,
+            dailyBudgetCents: a.daily_budget ? Number(a.daily_budget) : null,
+            lifetimeBudgetCents: a.lifetime_budget ? Number(a.lifetime_budget) : null,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [schema.metaAdsets.companyId, schema.metaAdsets.metaAdsetId],
+            set: { name: sql`excluded.name`, status: sql`excluded.status`, dailyBudgetCents: sql`excluded.daily_budget_cents`, lifetimeBudgetCents: sql`excluded.lifetime_budget_cents`, updatedAt: new Date() },
+          });
+      }
+      adsetNext = page.paging?.next ? page.paging.next.replace(`${GRAPH}/`, "").split("?")[0] : null;
+      if (page.paging?.next) { adsetParams = Object.fromEntries(new URL(page.paging.next).searchParams); delete adsetParams.access_token; }
     }
 
     // ── Anúncios + criativo (thumbnail) ──
@@ -147,33 +159,39 @@ export async function syncMetaConnection(conn: typeof schema.metaConnections.$in
       campaign_id: string;
       creative?: { id?: string; thumbnail_url?: string; title?: string; body?: string; effective_instagram_media_id?: string; effective_object_story_id?: string };
     };
-    const ads = await graph<Paged<AdRow>>(`${conn.adAccountId}/ads`, token, {
+    let adNext: string | null = `${conn.adAccountId}/ads`;
+    let adParams: Record<string, string> = {
       fields: "id,name,status,adset_id,campaign_id,creative{id,thumbnail_url,title,body,effective_instagram_media_id,effective_object_story_id}",
       limit: "500",
-    });
-    for (const a of ads.data) {
-      const channel = a.creative?.effective_instagram_media_id ? "Instagram" : pageName ?? "Facebook";
-      await db
-        .insert(schema.metaAds)
-        .values({
-          companyId: conn.companyId,
-          connectionId: conn.id,
-          metaAdId: a.id,
-          metaAdsetId: a.adset_id,
-          metaCampaignId: a.campaign_id,
-          name: a.name,
-          status: a.status,
-          creativeId: a.creative?.id ?? null,
-          thumbnailUrl: a.creative?.thumbnail_url ?? null,
-          title: a.creative?.title ?? null,
-          body: a.creative?.body ?? null,
-          channel,
-          updatedAt: new Date(),
-        })
-        .onConflictDoUpdate({
-          target: [schema.metaAds.companyId, schema.metaAds.metaAdId],
-          set: { name: sql`excluded.name`, status: sql`excluded.status`, thumbnailUrl: sql`excluded.thumbnail_url`, title: sql`excluded.title`, body: sql`excluded.body`, channel: sql`excluded.channel`, updatedAt: new Date() },
-        });
+    };
+    while (adNext) {
+      const page: Paged<AdRow> = await graph<Paged<AdRow>>(adNext, token, adParams);
+      for (const a of page.data) {
+        const channel = a.creative?.effective_instagram_media_id ? "Instagram" : pageName ?? "Facebook";
+        await db
+          .insert(schema.metaAds)
+          .values({
+            companyId: conn.companyId,
+            connectionId: conn.id,
+            metaAdId: a.id,
+            metaAdsetId: a.adset_id,
+            metaCampaignId: a.campaign_id,
+            name: a.name,
+            status: a.status,
+            creativeId: a.creative?.id ?? null,
+            thumbnailUrl: a.creative?.thumbnail_url ?? null,
+            title: a.creative?.title ?? null,
+            body: a.creative?.body ?? null,
+            channel,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [schema.metaAds.companyId, schema.metaAds.metaAdId],
+            set: { name: sql`excluded.name`, status: sql`excluded.status`, thumbnailUrl: sql`excluded.thumbnail_url`, title: sql`excluded.title`, body: sql`excluded.body`, channel: sql`excluded.channel`, updatedAt: new Date() },
+          });
+      }
+      adNext = page.paging?.next ? page.paging.next.replace(`${GRAPH}/`, "").split("?")[0] : null;
+      if (page.paging?.next) { adParams = Object.fromEntries(new URL(page.paging.next).searchParams); delete adParams.access_token; }
     }
 
     const insights = await graph<Paged<Insight>>(`${conn.adAccountId}/insights`, token, {
@@ -211,42 +229,45 @@ export async function syncMetaConnection(conn: typeof schema.metaConnections.$in
     }
 
     // ── Insights nível anúncio (últimos 30 dias) ──
-    const adInsights = await graph<Paged<{ ad_id: string; adset_id: string; campaign_id: string; date_start: string; spend?: string; impressions?: string; reach?: string; clicks?: string; inline_link_clicks?: string; actions?: { action_type: string; value: string }[] }>>(
-      `${conn.adAccountId}/insights`,
-      token,
-      { level: "ad", time_increment: "1", date_preset: "last_30d", fields: "ad_id,adset_id,campaign_id,spend,impressions,reach,clicks,inline_link_clicks,actions", limit: "500" },
-    );
-    for (const i of adInsights.data) {
-      const eng = mapEngagement(i.actions);
-      await db
-        .insert(schema.metaAdInsightsDaily)
-        .values({
-          companyId: conn.companyId,
-          metaAdId: i.ad_id,
-          metaAdsetId: i.adset_id,
-          metaCampaignId: i.campaign_id,
-          date: i.date_start,
-          spendCents: Math.round(Number(i.spend ?? 0) * 100),
-          impressions: Number(i.impressions ?? 0),
-          reach: Number(i.reach ?? 0),
-          clicks: Number(i.clicks ?? 0),
-          linkClicks: Number(i.inline_link_clicks ?? eng.linkClicks),
-          leads: eng.leads,
-          messagesStarted: eng.messagesStarted,
-          reactions: eng.reactions,
-          comments: eng.comments,
-          shares: eng.shares,
-          saves: eng.saves,
-          videoViews: eng.videoViews,
-          postEngagement: eng.postEngagement,
-        })
-        .onConflictDoUpdate({
-          target: [schema.metaAdInsightsDaily.companyId, schema.metaAdInsightsDaily.metaAdId, schema.metaAdInsightsDaily.date],
-          set: {
-            spendCents: sql`excluded.spend_cents`, impressions: sql`excluded.impressions`, reach: sql`excluded.reach`, clicks: sql`excluded.clicks`, linkClicks: sql`excluded.link_clicks`,
-            leads: sql`excluded.leads`, messagesStarted: sql`excluded.messages_started`, reactions: sql`excluded.reactions`, comments: sql`excluded.comments`, shares: sql`excluded.shares`, saves: sql`excluded.saves`, videoViews: sql`excluded.video_views`, postEngagement: sql`excluded.post_engagement`,
-          },
-        });
+    type AdInsightRow = { ad_id: string; adset_id: string; campaign_id: string; date_start: string; spend?: string; impressions?: string; reach?: string; clicks?: string; inline_link_clicks?: string; actions?: { action_type: string; value: string }[] };
+    let adInsightNext: string | null = `${conn.adAccountId}/insights`;
+    let adInsightParams: Record<string, string> = { level: "ad", time_increment: "1", date_preset: "last_30d", fields: "ad_id,adset_id,campaign_id,spend,impressions,reach,clicks,inline_link_clicks,actions", limit: "500" };
+    while (adInsightNext) {
+      const page: Paged<AdInsightRow> = await graph<Paged<AdInsightRow>>(adInsightNext, token, adInsightParams);
+      for (const i of page.data) {
+        const eng = mapEngagement(i.actions);
+        await db
+          .insert(schema.metaAdInsightsDaily)
+          .values({
+            companyId: conn.companyId,
+            metaAdId: i.ad_id,
+            metaAdsetId: i.adset_id,
+            metaCampaignId: i.campaign_id,
+            date: i.date_start,
+            spendCents: Math.round(Number(i.spend ?? 0) * 100),
+            impressions: Number(i.impressions ?? 0),
+            reach: Number(i.reach ?? 0),
+            clicks: Number(i.clicks ?? 0),
+            linkClicks: Number(i.inline_link_clicks ?? eng.linkClicks),
+            leads: eng.leads,
+            messagesStarted: eng.messagesStarted,
+            reactions: eng.reactions,
+            comments: eng.comments,
+            shares: eng.shares,
+            saves: eng.saves,
+            videoViews: eng.videoViews,
+            postEngagement: eng.postEngagement,
+          })
+          .onConflictDoUpdate({
+            target: [schema.metaAdInsightsDaily.companyId, schema.metaAdInsightsDaily.metaAdId, schema.metaAdInsightsDaily.date],
+            set: {
+              spendCents: sql`excluded.spend_cents`, impressions: sql`excluded.impressions`, reach: sql`excluded.reach`, clicks: sql`excluded.clicks`, linkClicks: sql`excluded.link_clicks`,
+              leads: sql`excluded.leads`, messagesStarted: sql`excluded.messages_started`, reactions: sql`excluded.reactions`, comments: sql`excluded.comments`, shares: sql`excluded.shares`, saves: sql`excluded.saves`, videoViews: sql`excluded.video_views`, postEngagement: sql`excluded.post_engagement`,
+            },
+          });
+      }
+      adInsightNext = page.paging?.next ? page.paging.next.replace(`${GRAPH}/`, "").split("?")[0] : null;
+      if (page.paging?.next) { adInsightParams = Object.fromEntries(new URL(page.paging.next).searchParams); delete adInsightParams.access_token; }
     }
 
     await db
