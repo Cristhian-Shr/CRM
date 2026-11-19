@@ -43,3 +43,19 @@ export async function backfillMetaMonth(
     return { month: "", rows: 0, done: true, error: e instanceof Error ? e.message : "Erro ao importar o histórico." };
   }
 }
+
+export async function saveBalanceAlert(formData: FormData) {
+  return safe(async () => {
+    const ctx = await getContext();
+    if (!ctx.isMaster) throw new Error("Apenas o admin mestre configura o alerta de saldo.");
+    const connectionId = String(formData.get("connectionId"));
+    const enabled = formData.get("enabled") === "on";
+    const limitReais = Number(String(formData.get("limit") ?? "0").replace(",", "."));
+    const phone = String(formData.get("phone") ?? "").replace(/\D/g, "");
+    await db
+      .update(schema.metaConnections)
+      .set({ alertEnabled: enabled, lowBalanceAlertCents: Math.round(limitReais * 100), alertPhone: phone || null })
+      .where(eq(schema.metaConnections.id, connectionId));
+    revalidatePath("/campanhas");
+  });
+}
