@@ -561,6 +561,17 @@ export const metaConnections = pgTable(
     status: text("status").notNull().default("connected"),
     lastSyncAt: ts("last_sync_at"),
     lastError: text("last_error"),
+    accountName: text("account_name"),
+    currency: text("currency").notNull().default("BRL"),
+    accountStatus: text("account_status"),
+    fundingType: text("funding_type"), // 'prepaid' | 'postpaid' | null
+    balanceCents: integer("balance_cents"),
+    spendCapCents: integer("spend_cap_cents"),
+    pageName: text("page_name"),
+    lowBalanceAlertCents: integer("low_balance_alert_cents"),
+    alertPhone: text("alert_phone"),
+    alertEnabled: boolean("alert_enabled").notNull().default(false),
+    lastBalanceAlertAt: ts("last_balance_alert_at"),
   },
   (t) => [uniqueIndex("meta_connections_uq").on(t.companyId, t.adAccountId)],
 );
@@ -601,6 +612,78 @@ export const metaInsightsDaily = pgTable(
     messagesStarted: integer("messages_started").notNull().default(0),
   },
   (t) => [uniqueIndex("meta_insights_uq").on(t.companyId, t.metaCampaignId, t.date)],
+);
+
+export const metaAdsets = pgTable(
+  "meta_adsets",
+  {
+    id: id(),
+    companyId: companyRef(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => metaConnections.id),
+    metaAdsetId: text("meta_adset_id").notNull(),
+    metaCampaignId: text("meta_campaign_id").notNull(),
+    name: text("name").notNull(),
+    status: text("status"),
+    dailyBudgetCents: integer("daily_budget_cents"),
+    lifetimeBudgetCents: integer("lifetime_budget_cents"),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("meta_adsets_uq").on(t.companyId, t.metaAdsetId)],
+);
+
+export const metaAds = pgTable(
+  "meta_ads",
+  {
+    id: id(),
+    companyId: companyRef(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => metaConnections.id),
+    metaAdId: text("meta_ad_id").notNull(),
+    metaAdsetId: text("meta_adset_id").notNull(),
+    metaCampaignId: text("meta_campaign_id").notNull(),
+    name: text("name").notNull(),
+    status: text("status"),
+    creativeId: text("creative_id"),
+    thumbnailUrl: text("thumbnail_url"),
+    title: text("title"),
+    body: text("body"),
+    channel: text("channel"), // página / @instagram derivado do creative
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("meta_ads_uq").on(t.companyId, t.metaAdId)],
+);
+
+export const metaAdInsightsDaily = pgTable(
+  "meta_ad_insights_daily",
+  {
+    id: id(),
+    companyId: companyRef(),
+    metaAdId: text("meta_ad_id").notNull(),
+    metaAdsetId: text("meta_adset_id").notNull(),
+    metaCampaignId: text("meta_campaign_id").notNull(),
+    date: date("date").notNull(),
+    spendCents: integer("spend_cents").notNull().default(0),
+    impressions: integer("impressions").notNull().default(0),
+    reach: integer("reach").notNull().default(0),
+    clicks: integer("clicks").notNull().default(0),
+    linkClicks: integer("link_clicks").notNull().default(0),
+    leads: integer("leads").notNull().default(0),
+    messagesStarted: integer("messages_started").notNull().default(0),
+    reactions: integer("reactions").notNull().default(0),
+    comments: integer("comments").notNull().default(0),
+    shares: integer("shares").notNull().default(0),
+    saves: integer("saves").notNull().default(0),
+    videoViews: integer("video_views").notNull().default(0),
+    postEngagement: integer("post_engagement").notNull().default(0),
+  },
+  (t) => [
+    uniqueIndex("meta_ad_insights_uq").on(t.companyId, t.metaAdId, t.date),
+    index("meta_ad_insights_campaign_idx").on(t.companyId, t.metaCampaignId, t.date),
+    index("meta_ad_insights_date_idx").on(t.companyId, t.date),
+  ],
 );
 
 // ───────────── Metas e auditoria ─────────────
