@@ -25,7 +25,7 @@ export async function CampanhasTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
       (select coalesce(sum(o.total_cents),0) from orders o join contacts ct on ct.id = o.contact_id where ct.company_id = c.company_id and ct.meta_campaign_id = c.meta_campaign_id and o.status in ('confirmed','paid')) as revenue
     from meta_campaigns c
     left join meta_insights_daily i on i.company_id = c.company_id and i.meta_campaign_id = c.meta_campaign_id and i.date >= ${since} and i.date <= ${until}
-    where c.company_id = ${ctx.companyId} ${campFilter}
+    where c.company_id = ${ctx.companyId} ${campFilter} ${sp.conta ? sql`and c.connection_id = ${sp.conta}` : sql``}
     group by c.id order by spend desc, c.name
   `);
   const crmRows = (crm.rows as Record<string, unknown>[])
@@ -59,6 +59,7 @@ export async function CampanhasTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
         ? sql`left join meta_adsets n on n.company_id = ai.company_id and n.meta_adset_id = ai.meta_adset_id`
         : sql`left join meta_campaigns n on n.company_id = ai.company_id and n.meta_campaign_id = ai.meta_campaign_id`;
   const campFilterAi = sp.campanha ? sql`and ai.meta_campaign_id = ${sp.campanha}` : sql``;
+  const contaFilterAi = sp.conta ? sql`and ai.meta_campaign_id in (select mc.meta_campaign_id from meta_campaigns mc where mc.company_id = ${ctx.companyId} and mc.connection_id = ${sp.conta})` : sql``;
   const mgr = await db.execute(sql`
     select ${groupCol} as key, max(n.name) as name, max(n.status) as status,
       coalesce(sum(ai.spend_cents),0)::bigint as spend,
@@ -74,7 +75,7 @@ export async function CampanhasTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
       coalesce(sum(ai.post_engagement),0)::bigint as post_engagement,
       coalesce(sum(ai.leads + ai.messages_started),0)::bigint as leads
     from meta_ad_insights_daily ai ${nameJoin}
-    where ai.company_id = ${ctx.companyId} and ai.date >= ${since} and ai.date <= ${until} ${campFilterAi}
+    where ai.company_id = ${ctx.companyId} and ai.date >= ${since} and ai.date <= ${until} ${campFilterAi} ${contaFilterAi}
     group by key order by spend desc
   `);
   const mgrRows = (mgr.rows as Record<string, unknown>[]).map((r) => {
@@ -111,7 +112,7 @@ export async function CampanhasTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
     const prev = await db.execute(sql`
       select ${groupCol} as key, coalesce(sum(ai.spend_cents),0)::bigint as spend
       from meta_ad_insights_daily ai
-      where ai.company_id = ${ctx.companyId} and ai.date >= ${ps} and ai.date <= ${pu} ${campFilterAi}
+      where ai.company_id = ${ctx.companyId} and ai.date >= ${ps} and ai.date <= ${pu} ${campFilterAi} ${contaFilterAi}
       group by key
     `);
     prevSpendByKey = Object.fromEntries((prev.rows as Record<string, unknown>[]).map((r) => [String(r.key), Number(r.spend)]));
@@ -134,6 +135,7 @@ export async function CampanhasTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
     periodo: sp.periodo ?? "30",
     ...(sp.de ? { de: sp.de } : {}),
     ...(sp.ate ? { ate: sp.ate } : {}),
+    ...(sp.conta ? { conta: sp.conta } : {}),
     ...(sp.campanha ? { campanha: sp.campanha } : {}),
   }).toString()}`;
 

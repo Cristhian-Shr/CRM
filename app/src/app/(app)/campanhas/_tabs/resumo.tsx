@@ -12,6 +12,7 @@ type Ctx = Awaited<ReturnType<typeof getContext>>;
 export async function ResumoTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch }) {
   const { since, until } = resolvePeriod(sp);
   const campFilter = sp.campanha ? sql`and i.meta_campaign_id = ${sp.campanha}` : sql``;
+  const contaFilter = sp.conta ? sql`and i.meta_campaign_id in (select mc.meta_campaign_id from meta_campaigns mc where mc.company_id = ${ctx.companyId} and mc.connection_id = ${sp.conta})` : sql``;
   // Resumo usa insights nível campanha (histórico completo).
   const rows = await db.execute(sql`
     select i.date,
@@ -20,7 +21,7 @@ export async function ResumoTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch }) {
       coalesce(sum(i.clicks),0)::bigint as clicks,
       coalesce(sum(i.leads + i.messages_started),0)::bigint as leads
     from meta_insights_daily i
-    where i.company_id = ${ctx.companyId} and i.date >= ${since} and i.date <= ${until} ${campFilter}
+    where i.company_id = ${ctx.companyId} and i.date >= ${since} and i.date <= ${until} ${campFilter} ${contaFilter}
     group by i.date order by i.date
   `);
   const daily = (rows.rows as Record<string, unknown>[]).map((r) => ({
