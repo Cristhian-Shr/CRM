@@ -7,14 +7,52 @@ import { sendText } from "./whatsapp";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
+const GRAPH_MAX_RETRIES = 3; // até 4 tentativas no total
+// Códigos da Meta considerados transitórios (temporários / rate-limit).
+const GRAPH_RETRYABLE_CODES = new Set([1, 2, 4, 17, 32, 341, 368, 613]);
+
+type MetaError = { message?: string; code?: number; error_subcode?: number; is_transient?: boolean; type?: string };
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+function isRetryableGraphError(status: number, err?: MetaError): boolean {
+  if (status >= 500 || status === 429) return true;
+  if (!err) return false;
+  if (err.is_transient) return true;
+  if (err.code != null && GRAPH_RETRYABLE_CODES.has(err.code)) return true;
+  // O endpoint de insights às vezes devolve "(#100) nonexisting field" de forma
+  // transitória para campos que de fato existem (job assíncrono ainda não pronto,
+  // carga). Tratamos #100 como reententável: se o campo for mesmo inválido, apenas
+  // falha alguns segundos depois, sem ficar preso como erro permanente.
+  if (err.code === 100) return true;
+  return false;
+}
+
 async function graph<T>(path: string, token: string, params: Record<string, string> = {}): Promise<T> {
   const url = new URL(`${GRAPH}/${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   url.searchParams.set("access_token", token);
-  const res = await fetch(url, { cache: "no-store" });
-  const json = (await res.json()) as T & { error?: { message: string } };
-  if (!res.ok || json.error) throw new Error(json.error?.message ?? `Meta respondeu ${res.status}`);
-  return json;
+
+  let lastErr: Error | null = null;
+  for (let attempt = 0; attempt <= GRAPH_MAX_RETRIES; attempt++) {
+    if (attempt > 0) await sleep(500 * 2 ** (attempt - 1)); // 0.5s, 1s, 2s
+
+    let res: Response;
+    try {
+      res = await fetch(url, { cache: "no-store" });
+    } catch (e) {
+      // Falha de rede: reententável enquanto houver tentativas.
+      lastErr = e instanceof Error ? e : new Error(String(e));
+      continue;
+    }
+
+    const json = (await res.json().catch(() => ({}))) as T & { error?: MetaError };
+    if (res.ok && !json.error) return json;
+
+    lastErr = new Error(json.error?.message ?? `Meta respondeu ${res.status}`);
+    if (!isRetryableGraphError(res.status, json.error)) throw lastErr;
+  }
+  throw lastErr ?? new Error("Meta: falha após múltiplas tentativas");
 }
 
 type Paged<T> = { data: T[]; paging?: { next?: string } };
@@ -161,7 +199,9 @@ export async function syncMetaConnection(conn: typeof schema.metaConnections.$in
     };
     let adNext: string | null = `${conn.adAccountId}/ads`;
     let adParams: Record<string, string> = {
-      fields: "id,name,status,adset_id,campaign_id,creative{id,thumbnail_url,title,body,effective_instagram_media_id,effective_object_story_id}",
+      // thumbnail_width/height(600) força a Meta a devolver a prévia em 600×600
+      // (o padrão é ~64px, que fica borrado ao exibir). Vale p/ imagem e vídeo.
+      fields: "id,name,status,adset_id,campaign_id,creative.thumbnail_width(600).thumbnail_height(600){id,thumbnail_url,title,body,effective_instagram_media_id,effective_object_story_id}",
       limit: "500",
     };
     while (adNext) {
@@ -232,6 +272,11 @@ export async function syncMetaConnection(conn: typeof schema.metaConnections.$in
     type AdInsightRow = { ad_id: string; adset_id: string; campaign_id: string; date_start: string; spend?: string; impressions?: string; reach?: string; clicks?: string; inline_link_clicks?: string; actions?: { action_type: string; value: string }[] };
     let adInsightNext: string | null = `${conn.adAccountId}/insights`;
     let adInsightParams: Record<string, string> = { level: "ad", time_increment: "1", date_preset: "last_30d", fields: "ad_id,adset_id,campaign_id,spend,impressions,reach,clicks,inline_link_clicks,actions", limit: "500" };
+    // Dados nível-anúncio são secundários (abastecem a aba Criativos). O endpoint de
+    // insights do Meta às vezes devolve "(#100) nonexisting field" transitório na
+    // paginação — o retry no graph() cobre a maioria; se ainda assim falhar, apenas
+    // logamos e seguimos: o sync principal não deve quebrar nem travar erro na tela.
+    try {
     while (adInsightNext) {
       const page: Paged<AdInsightRow> = await graph<Paged<AdInsightRow>>(adInsightNext, token, adInsightParams);
       for (const i of page.data) {
@@ -268,6 +313,9 @@ export async function syncMetaConnection(conn: typeof schema.metaConnections.$in
       }
       adInsightNext = page.paging?.next ? page.paging.next.replace(`${GRAPH}/`, "").split("?")[0] : null;
       if (page.paging?.next) { adInsightParams = Object.fromEntries(new URL(page.paging.next).searchParams); delete adInsightParams.access_token; }
+    }
+    } catch (e) {
+      console.warn(`[meta] insights nível-anúncio falharam p/ conexão ${conn.id}; sync principal segue.`, e instanceof Error ? e.message : e);
     }
 
     await db

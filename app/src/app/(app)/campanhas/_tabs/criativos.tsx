@@ -87,9 +87,9 @@ export async function CriativosTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
           <div key={a.id} className="card overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {a.thumb ? (
-              <img src={a.thumb} alt={a.name} className="h-40 w-full object-cover" />
+              <img src={a.thumb} alt={a.name} className="h-32 w-full bg-surface object-contain" />
             ) : (
-              <div className="flex h-40 items-center justify-center bg-surface text-xs text-muted">sem prévia</div>
+              <div className="flex h-32 items-center justify-center bg-surface text-xs text-muted">sem prévia</div>
             )}
             <div className="space-y-1 p-3">
               <div className="truncate text-sm font-medium" title={a.name}>
