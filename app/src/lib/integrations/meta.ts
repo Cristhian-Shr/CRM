@@ -55,6 +55,12 @@ async function graph<T>(path: string, token: string, params: Record<string, stri
   throw lastErr ?? new Error("Meta: falha após múltiplas tentativas");
 }
 
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 type Paged<T> = { data: T[]; paging?: { next?: string } };
 type Campaign = {
   id: string;
@@ -353,6 +359,10 @@ export async function backfillMetaMonth(conn: typeof schema.metaConnections.$inf
   const token = decrypt(conn.accessTokenEnc);
   const since = `${year}-${String(month).padStart(2, "0")}-01`;
   const until = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10); // último dia do mês
+  // ── Nível campanha (alimenta Resumo/Campanhas) ──
+  // Coletamos TODAS as páginas na memória e gravamos em lote. Antes era 1 INSERT
+  // por linha (centenas de round-trips ao banco), o que estourava o tempo da função
+  // serverless e deixava o mês importado pela metade.
   let next: string | null = `${conn.adAccountId}/insights`;
   let params: Record<string, string> = {
     level: "campaign",
@@ -361,45 +371,23 @@ export async function backfillMetaMonth(conn: typeof schema.metaConnections.$inf
     fields: "campaign_id,campaign_name,spend,impressions,reach,clicks,actions",
     limit: "500",
   };
-  let rows = 0;
+  const campaignNames = new Map<string, string>();
+  const dailyRows: (typeof schema.metaInsightsDaily.$inferInsert)[] = [];
   while (next) {
     const page: Paged<Insight> = await graph<Paged<Insight>>(next, token, params);
     for (const i of page.data) {
-      await db
-        .insert(schema.metaCampaigns)
-        .values({
-          companyId: conn.companyId,
-          connectionId: conn.id,
-          metaCampaignId: i.campaign_id,
-          name: i.campaign_name ?? i.campaign_id,
-          status: "ARCHIVED",
-        })
-        .onConflictDoNothing({ target: [schema.metaCampaigns.companyId, schema.metaCampaigns.metaCampaignId] });
-      await db
-        .insert(schema.metaInsightsDaily)
-        .values({
-          companyId: conn.companyId,
-          metaCampaignId: i.campaign_id,
-          date: i.date_start,
-          spendCents: Math.round(Number(i.spend ?? 0) * 100),
-          impressions: Number(i.impressions ?? 0),
-          reach: Number(i.reach ?? 0),
-          clicks: Number(i.clicks ?? 0),
-          leads: maxAction(i.actions, LEAD_ACTIONS),
-          messagesStarted: maxAction(i.actions, MSG_ACTIONS),
-        })
-        .onConflictDoUpdate({
-          target: [schema.metaInsightsDaily.companyId, schema.metaInsightsDaily.metaCampaignId, schema.metaInsightsDaily.date],
-          set: {
-            spendCents: sql`excluded.spend_cents`,
-            impressions: sql`excluded.impressions`,
-            reach: sql`excluded.reach`,
-            clicks: sql`excluded.clicks`,
-            leads: sql`excluded.leads`,
-            messagesStarted: sql`excluded.messages_started`,
-          },
-        });
-      rows++;
+      campaignNames.set(i.campaign_id, i.campaign_name ?? i.campaign_id);
+      dailyRows.push({
+        companyId: conn.companyId,
+        metaCampaignId: i.campaign_id,
+        date: i.date_start,
+        spendCents: Math.round(Number(i.spend ?? 0) * 100),
+        impressions: Number(i.impressions ?? 0),
+        reach: Number(i.reach ?? 0),
+        clicks: Number(i.clicks ?? 0),
+        leads: maxAction(i.actions, LEAD_ACTIONS),
+        messagesStarted: maxAction(i.actions, MSG_ACTIONS),
+      });
     }
     next = page.paging?.next ? page.paging.next.replace(`${GRAPH}/`, "").split("?")[0] : null;
     if (page.paging?.next) {
@@ -408,27 +396,59 @@ export async function backfillMetaMonth(conn: typeof schema.metaConnections.$inf
     }
   }
 
-  // ad-level no mesmo mês
-  let adNext: string | null = `${conn.adAccountId}/insights`;
-  let adParams: Record<string, string> = {
-    level: "ad", time_increment: "1", time_range: JSON.stringify({ since, until }),
-    fields: "ad_id,adset_id,campaign_id,spend,impressions,reach,clicks,inline_link_clicks,actions", limit: "500",
-  };
-  while (adNext) {
-    const page: Paged<{ ad_id: string; adset_id: string; campaign_id: string; date_start: string; spend?: string; impressions?: string; reach?: string; clicks?: string; inline_link_clicks?: string; actions?: { action_type: string; value: string }[] }> = await graph(adNext, token, adParams);
-    for (const i of page.data) {
-      const eng = mapEngagement(i.actions);
-      await db.insert(schema.metaAdInsightsDaily).values({
-        companyId: conn.companyId, metaAdId: i.ad_id, metaAdsetId: i.adset_id, metaCampaignId: i.campaign_id, date: i.date_start,
-        spendCents: Math.round(Number(i.spend ?? 0) * 100), impressions: Number(i.impressions ?? 0), reach: Number(i.reach ?? 0), clicks: Number(i.clicks ?? 0), linkClicks: Number(i.inline_link_clicks ?? eng.linkClicks),
-        leads: eng.leads, messagesStarted: eng.messagesStarted, reactions: eng.reactions, comments: eng.comments, shares: eng.shares, saves: eng.saves, videoViews: eng.videoViews, postEngagement: eng.postEngagement,
-      }).onConflictDoUpdate({
+  if (campaignNames.size) {
+    await db
+      .insert(schema.metaCampaigns)
+      .values([...campaignNames].map(([id, name]) => ({ companyId: conn.companyId, connectionId: conn.id, metaCampaignId: id, name, status: "ARCHIVED" })))
+      .onConflictDoNothing({ target: [schema.metaCampaigns.companyId, schema.metaCampaigns.metaCampaignId] });
+  }
+  for (const batch of chunk(dailyRows, 500)) {
+    await db
+      .insert(schema.metaInsightsDaily)
+      .values(batch)
+      .onConflictDoUpdate({
+        target: [schema.metaInsightsDaily.companyId, schema.metaInsightsDaily.metaCampaignId, schema.metaInsightsDaily.date],
+        set: {
+          spendCents: sql`excluded.spend_cents`,
+          impressions: sql`excluded.impressions`,
+          reach: sql`excluded.reach`,
+          clicks: sql`excluded.clicks`,
+          leads: sql`excluded.leads`,
+          messagesStarted: sql`excluded.messages_started`,
+        },
+      });
+  }
+  const rows = dailyRows.length;
+
+  // ── Nível anúncio (alimenta Criativos) — secundário e tolerante a falha ──
+  try {
+    let adNext: string | null = `${conn.adAccountId}/insights`;
+    let adParams: Record<string, string> = {
+      level: "ad", time_increment: "1", time_range: JSON.stringify({ since, until }),
+      fields: "ad_id,adset_id,campaign_id,spend,impressions,reach,clicks,inline_link_clicks,actions", limit: "500",
+    };
+    const adRows: (typeof schema.metaAdInsightsDaily.$inferInsert)[] = [];
+    while (adNext) {
+      const page: Paged<{ ad_id: string; adset_id: string; campaign_id: string; date_start: string; spend?: string; impressions?: string; reach?: string; clicks?: string; inline_link_clicks?: string; actions?: { action_type: string; value: string }[] }> = await graph(adNext, token, adParams);
+      for (const i of page.data) {
+        const eng = mapEngagement(i.actions);
+        adRows.push({
+          companyId: conn.companyId, metaAdId: i.ad_id, metaAdsetId: i.adset_id, metaCampaignId: i.campaign_id, date: i.date_start,
+          spendCents: Math.round(Number(i.spend ?? 0) * 100), impressions: Number(i.impressions ?? 0), reach: Number(i.reach ?? 0), clicks: Number(i.clicks ?? 0), linkClicks: Number(i.inline_link_clicks ?? eng.linkClicks),
+          leads: eng.leads, messagesStarted: eng.messagesStarted, reactions: eng.reactions, comments: eng.comments, shares: eng.shares, saves: eng.saves, videoViews: eng.videoViews, postEngagement: eng.postEngagement,
+        });
+      }
+      adNext = page.paging?.next ? page.paging.next.replace(`${GRAPH}/`, "").split("?")[0] : null;
+      if (page.paging?.next) { adParams = Object.fromEntries(new URL(page.paging.next).searchParams); delete adParams.access_token; }
+    }
+    for (const batch of chunk(adRows, 300)) {
+      await db.insert(schema.metaAdInsightsDaily).values(batch).onConflictDoUpdate({
         target: [schema.metaAdInsightsDaily.companyId, schema.metaAdInsightsDaily.metaAdId, schema.metaAdInsightsDaily.date],
         set: { spendCents: sql`excluded.spend_cents`, impressions: sql`excluded.impressions`, reach: sql`excluded.reach`, clicks: sql`excluded.clicks`, linkClicks: sql`excluded.link_clicks`, leads: sql`excluded.leads`, messagesStarted: sql`excluded.messages_started`, reactions: sql`excluded.reactions`, comments: sql`excluded.comments`, shares: sql`excluded.shares`, saves: sql`excluded.saves`, videoViews: sql`excluded.video_views`, postEngagement: sql`excluded.post_engagement` },
       });
     }
-    adNext = page.paging?.next ? page.paging.next.replace(`${GRAPH}/`, "").split("?")[0] : null;
-    if (page.paging?.next) { adParams = Object.fromEntries(new URL(page.paging.next).searchParams); delete adParams.access_token; }
+  } catch (e) {
+    console.warn(`[meta] backfill nível-anúncio falhou p/ ${since}; nível campanha já gravado.`, e instanceof Error ? e.message : e);
   }
 
   return { rows };

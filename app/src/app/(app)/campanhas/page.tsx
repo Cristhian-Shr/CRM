@@ -20,6 +20,8 @@ import { VinculosTab } from "./_tabs/vinculos";
 import { AlertaSaldoTab } from "./_tabs/alerta-saldo";
 
 export const metadata = { title: "Tráfego pago" };
+// Folga para a importação de histórico (server action), que percorre vários meses.
+export const maxDuration = 60;
 
 export default async function CampaignsPage({ searchParams }: { searchParams: Promise<TrafegoSearch> }) {
   const ctx = await getContext();
