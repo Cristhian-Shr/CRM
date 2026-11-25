@@ -150,7 +150,12 @@ export async function CampanhasTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
   return (
     <div className="space-y-8">
       <section className="card overflow-x-auto">
-        <h3 className="p-4 text-sm font-semibold">Campanhas e resultado real no CRM</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <h3 className="text-sm font-semibold">Campanhas e resultado real no CRM</h3>
+          <Link href={ativosLink} className={cn("rounded-md px-3 py-1 text-sm", ativos ? "bg-brand-500 text-white" : "btn-secondary")}>
+            {ativos ? "Mostrando ativos" : "Apenas ativos"}
+          </Link>
+        </div>
         {crmRows.length === 0 ? (
           <Empty>Nenhuma campanha com dados no período.</Empty>
         ) : (
