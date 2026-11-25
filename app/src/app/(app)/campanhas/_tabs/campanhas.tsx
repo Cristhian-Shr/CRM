@@ -11,6 +11,7 @@ const nf = new Intl.NumberFormat("pt-BR");
 
 export async function CampanhasTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch }) {
   const { since, until } = resolvePeriod(sp);
+  const ativos = sp.ativos === "1";
   const campFilter = sp.campanha ? sql`and c.meta_campaign_id = ${sp.campanha}` : sql``;
 
   // (a) Resultado real no CRM (nível campanha)
@@ -25,7 +26,7 @@ export async function CampanhasTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
       (select coalesce(sum(o.total_cents),0) from orders o join contacts ct on ct.id = o.contact_id where ct.company_id = c.company_id and ct.meta_campaign_id = c.meta_campaign_id and o.status in ('confirmed','paid')) as revenue
     from meta_campaigns c
     left join meta_insights_daily i on i.company_id = c.company_id and i.meta_campaign_id = c.meta_campaign_id and i.date >= ${since} and i.date <= ${until}
-    where c.company_id = ${ctx.companyId} ${campFilter} ${sp.conta ? sql`and c.connection_id = ${sp.conta}` : sql``}
+    where c.company_id = ${ctx.companyId} ${campFilter} ${sp.conta ? sql`and c.connection_id = ${sp.conta}` : sql``} ${ativos ? sql`and c.status = 'ACTIVE'` : sql``}
     group by c.id order by spend desc, c.name
   `);
   const crmRows = (crm.rows as Record<string, unknown>[])
@@ -75,7 +76,7 @@ export async function CampanhasTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
       coalesce(sum(ai.post_engagement),0)::bigint as post_engagement,
       coalesce(sum(ai.leads + ai.messages_started),0)::bigint as leads
     from meta_ad_insights_daily ai ${nameJoin}
-    where ai.company_id = ${ctx.companyId} and ai.date >= ${since} and ai.date <= ${until} ${campFilterAi} ${contaFilterAi}
+    where ai.company_id = ${ctx.companyId} and ai.date >= ${since} and ai.date <= ${until} ${campFilterAi} ${contaFilterAi} ${ativos ? sql`and n.status = 'ACTIVE'` : sql``}
     group by key order by spend desc
   `);
   const mgrRows = (mgr.rows as Record<string, unknown>[]).map((r) => {
@@ -126,10 +127,17 @@ export async function CampanhasTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
       ...(sp.ate ? { ate: sp.ate } : {}),
       ...(sp.conta ? { conta: sp.conta } : {}),
       ...(sp.campanha ? { campanha: sp.campanha } : {}),
+      ...(sp.ativos ? { ativos: sp.ativos } : {}),
       ...extra,
     }).toString();
   const graoLink = (g: string) => `/campanhas?${keep({ grao: g, ...(sp.comparar === "1" ? { comparar: "1" } : {}) })}`;
   const compararLink = `/campanhas?${keep({ grao, ...(sp.comparar === "1" ? {} : { comparar: "1" }) })}`;
+  const ativosLink = (() => {
+    const p = new URLSearchParams(keep({ grao, ...(sp.comparar === "1" ? { comparar: "1" } : {}) }));
+    if (ativos) p.delete("ativos");
+    else p.set("ativos", "1");
+    return `/campanhas?${p.toString()}`;
+  })();
   const exportHref = `/campanhas/export?${new URLSearchParams({
     grao,
     periodo: sp.periodo ?? "30",
@@ -192,6 +200,9 @@ export async function CampanhasTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
                 </Link>
               ))}
             </div>
+            <Link href={ativosLink} className={cn("rounded-md px-3 py-1 text-sm", ativos ? "bg-brand-500 text-white" : "btn-secondary")}>
+              {ativos ? "Mostrando ativos" : "Apenas ativos"}
+            </Link>
             <Link href={compararLink} className="btn-secondary text-sm">
               {sp.comparar === "1" ? "Sem comparação" : "Comparar período anterior"}
             </Link>

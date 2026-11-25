@@ -8,6 +8,7 @@ export type TrafegoSearch = {
   ate?: string;
   conta?: string; // connectionId | undefined (todas)
   campanha?: string; // metaCampaignId | undefined (todas)
+  ativos?: string; // '1' = só itens com status ACTIVE
   grao?: string; // 'campanha' | 'conjunto' | 'anuncio'
   comparar?: string;
   detalhar?: string; // 'dia' | 'semana' | 'mes'

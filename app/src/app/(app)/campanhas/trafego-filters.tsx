@@ -27,6 +27,7 @@ export function TrafegoFilters({
     router.push(`/campanhas?${next.toString()}`);
   };
   const val = (k: string, d = "") => sp.get(k) ?? d;
+  const isCustom = val("periodo", "30") === "custom";
 
   return (
     <div className="mb-4 flex flex-wrap items-end gap-x-4 gap-y-3">
@@ -38,14 +39,18 @@ export function TrafegoFilters({
           ))}
         </select>
       </label>
-      <label className="flex flex-col gap-1 text-xs text-muted">
-        De
-        <input type="date" className="input w-40" value={val("de")} onChange={(e) => { set("de", e.target.value); }} onBlur={() => set("periodo", "custom")} />
-      </label>
-      <label className="flex flex-col gap-1 text-xs text-muted">
-        Até
-        <input type="date" className="input w-40" value={val("ate")} onChange={(e) => set("ate", e.target.value)} onBlur={() => set("periodo", "custom")} />
-      </label>
+      {isCustom && (
+        <>
+          <label className="flex flex-col gap-1 text-xs text-muted">
+            De
+            <input type="date" className="input w-40" value={val("de")} onChange={(e) => set("de", e.target.value)} />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted">
+            Até
+            <input type="date" className="input w-40" value={val("ate")} onChange={(e) => set("ate", e.target.value)} />
+          </label>
+        </>
+      )}
       <label className="flex flex-col gap-1 text-xs text-muted">
         Conta
         <select className="input w-52" value={val("conta")} onChange={(e) => set("conta", e.target.value)}>

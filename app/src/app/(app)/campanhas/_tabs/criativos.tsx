@@ -13,6 +13,8 @@ export async function CriativosTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
   const { since, until } = resolvePeriod(sp);
   const campFilter = sp.campanha ? sql`and ai.meta_campaign_id = ${sp.campanha}` : sql``;
   const contaFilter = sp.conta ? sql`and a.connection_id = ${sp.conta}` : sql``;
+  const ativos = sp.ativos === "1";
+  const ativosFilter = ativos ? sql`and a.status = 'ACTIVE'` : sql``;
   const order = sp.ordenar ?? "investido";
   const orderSql =
     order === "leads"
@@ -30,7 +32,7 @@ export async function CriativosTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
     from meta_ads a
     join meta_ad_insights_daily ai on ai.company_id = a.company_id and ai.meta_ad_id = a.meta_ad_id and ai.date >= ${since} and ai.date <= ${until}
     left join meta_campaigns cmp on cmp.company_id = a.company_id and cmp.meta_campaign_id = a.meta_campaign_id
-    where a.company_id = ${ctx.companyId} ${campFilter} ${contaFilter}
+    where a.company_id = ${ctx.companyId} ${campFilter} ${contaFilter} ${ativosFilter}
     group by a.meta_ad_id, a.name, a.thumbnail_url, a.status, a.channel, cmp.name
     having coalesce(sum(ai.spend_cents),0) > 0
     order by ${orderSql}
@@ -54,16 +56,17 @@ export async function CriativosTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
       cpl: leads ? Math.round(spend / leads) : 0,
     };
   });
+  const baseParams = {
+    aba: "criativos",
+    ...(sp.periodo ? { periodo: sp.periodo } : {}),
+    ...(sp.de ? { de: sp.de } : {}),
+    ...(sp.ate ? { ate: sp.ate } : {}),
+    ...(sp.conta ? { conta: sp.conta } : {}),
+    ...(sp.campanha ? { campanha: sp.campanha } : {}),
+  };
   const ordLink = (o: string) =>
-    `/campanhas?${new URLSearchParams({
-      aba: "criativos",
-      ordenar: o,
-      ...(sp.periodo ? { periodo: sp.periodo } : {}),
-      ...(sp.de ? { de: sp.de } : {}),
-      ...(sp.ate ? { ate: sp.ate } : {}),
-      ...(sp.conta ? { conta: sp.conta } : {}),
-      ...(sp.campanha ? { campanha: sp.campanha } : {}),
-    }).toString()}`;
+    `/campanhas?${new URLSearchParams({ ...baseParams, ordenar: o, ...(ativos ? { ativos: "1" } : {}) }).toString()}`;
+  const ativosLink = `/campanhas?${new URLSearchParams({ ...baseParams, ordenar: order, ...(ativos ? {} : { ativos: "1" }) }).toString()}`;
 
   if (!ads.length) return <Empty>Nenhum anúncio com investimento no período. Clique em &quot;Atualizar agora&quot;.</Empty>;
 
@@ -81,6 +84,9 @@ export async function CriativosTab({ ctx, sp }: { ctx: Ctx; sp: TrafegoSearch })
             {l}
           </Link>
         ))}
+        <Link href={ativosLink} className={cn("ml-auto rounded-md px-3 py-1", ativos ? "bg-brand-500 text-white" : "btn-secondary")}>
+          {ativos ? "Mostrando ativos" : "Apenas ativos"}
+        </Link>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {ads.map((a) => (

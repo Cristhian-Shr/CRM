@@ -18,11 +18,11 @@ export function BarLineChart({ data, barLabel, lineLabel, height = 240 }: { data
     <div className="overflow-x-auto">
       <svg width={w} height={height} role="img" aria-label={`${barLabel} x ${lineLabel}`} className="min-w-full">
         {data.map((d, i) => (
-          <rect key={i} x={x(i) - bw * 0.3} y={yBar(d.bar)} width={bw * 0.6} height={pad.t + innerH - yBar(d.bar)} rx={2} className="fill-teal-600/80" />
+          <rect key={i} x={x(i) - bw * 0.3} y={yBar(d.bar)} width={bw * 0.6} height={pad.t + innerH - yBar(d.bar)} rx={2} className="fill-blue-600/80" />
         ))}
-        <path d={path} fill="none" className="stroke-teal-900" strokeWidth={2} />
+        <path d={path} fill="none" className="stroke-blue-400" strokeWidth={2} />
         {data.map((d, i) => (
-          <circle key={i} cx={x(i)} cy={yLine(d.line)} r={2.5} className="fill-teal-900" />
+          <circle key={i} cx={x(i)} cy={yLine(d.line)} r={2.5} className="fill-blue-400" />
         ))}
         {data.map((d, i) => (
           <text key={i} x={x(i)} y={height - 8} textAnchor="middle" className="fill-muted text-[9px]">
@@ -31,8 +31,8 @@ export function BarLineChart({ data, barLabel, lineLabel, height = 240 }: { data
         ))}
       </svg>
       <div className="mt-2 flex items-center justify-center gap-4 text-xs text-muted">
-        <span className="inline-flex items-center gap-1"><span className="h-2 w-3 rounded-sm bg-teal-600/80" /> {barLabel}</span>
-        <span className="inline-flex items-center gap-1"><span className="h-0.5 w-3 bg-teal-900" /> {lineLabel}</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-3 rounded-sm bg-blue-600/80" /> {barLabel}</span>
+        <span className="inline-flex items-center gap-1"><span className="h-0.5 w-3 bg-blue-400" /> {lineLabel}</span>
       </div>
     </div>
   );
